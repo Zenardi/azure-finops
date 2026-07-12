@@ -1,0 +1,73 @@
+{
+  "uid": "finops-recs",
+  "title": "FinOps — Recommendations & Savings",
+  "tags": ["finops", "recommendations"],
+  "timezone": "",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "",
+  "time": { "from": "now-30d", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total potential monthly savings",
+      "datasource": { "type": "postgres", "uid": "finops_pg" },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "green" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "postgres", "uid": "finops_pg" }, "editorMode": "code", "format": "table", "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(est_monthly_savings),0) AS \"Savings\" FROM v_latest_recommendations" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "barchart",
+      "title": "Savings by category",
+      "datasource": { "type": "postgres", "uid": "finops_pg" },
+      "gridPos": { "h": 6, "w": 16, "x": 8, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" }, "overrides": [] },
+      "options": { "orientation": "horizontal", "xField": "category", "legend": { "showLegend": false } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "postgres", "uid": "finops_pg" }, "editorMode": "code", "format": "table", "rawQuery": true,
+          "rawSql": "SELECT category, est_monthly_savings FROM v_savings_by_category ORDER BY est_monthly_savings DESC" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Recommendations (latest run)",
+      "datasource": { "type": "postgres", "uid": "finops_pg" },
+      "gridPos": { "h": 11, "w": 24, "x": 0, "y": 6 },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "est_monthly_savings" }, "properties": [ { "id": "unit", "value": "currencyUSD" }, { "id": "custom.cellOptions", "value": { "type": "gauge" } } ] },
+          { "matcher": { "id": "byName", "options": "confidence" }, "properties": [ { "id": "unit", "value": "percentunit" } ] }
+        ]
+      },
+      "options": { "showHeader": true, "sortBy": [ { "displayName": "priority", "desc": false } ] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "postgres", "uid": "finops_pg" }, "editorMode": "code", "format": "table", "rawQuery": true,
+          "rawSql": "SELECT priority, split_part(resource_id,'/',9) AS resource, category, action, recommended_sku, risk, confidence, est_monthly_savings, source, rationale FROM v_latest_recommendations ORDER BY priority" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "VM utilization rollups",
+      "datasource": { "type": "postgres", "uid": "finops_pg" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 17 },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": { "showHeader": true, "sortBy": [ { "displayName": "cpu_p95", "desc": false } ] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "postgres", "uid": "finops_pg" }, "editorMode": "code", "format": "table", "rawQuery": true,
+          "rawSql": "SELECT split_part(resource_id,'/',9) AS resource, round(cpu_avg,1) AS cpu_avg, round(cpu_p95,1) AS cpu_p95, round(cpu_max,1) AS cpu_max, round(mem_p95,1) AS mem_p95, mem_available, round(data_completeness*100,0) AS coverage_pct FROM utilization_rollups ORDER BY cpu_p95" }
+      ]
+    }
+  ]
+}

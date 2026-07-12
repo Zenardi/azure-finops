@@ -1,0 +1,311 @@
+"""Repository: idempotent writes and read helpers over the ORM schema.
+
+All fact writes use PostgreSQL ``INSERT ... ON CONFLICT DO UPDATE`` and dedupe
+within the batch first (Postgres rejects a conflict target hit twice in one
+statement), so re-running a collection never creates duplicate rows.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Any
+
+from sqlalchemy import delete, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import Session
+
+from .. import models as m
+from . import schema
+
+
+# --------------------------------------------------------------------------- #
+# Run lifecycle
+# --------------------------------------------------------------------------- #
+def create_run(
+    session: Session,
+    *,
+    run_id: str,
+    subscription_id: str | None,
+    metric_lookback_days: int,
+    cost_lookback_days: int,
+    mock: bool,
+    provider_used: str | None = None,
+    model: str | None = None,
+) -> None:
+    session.add(
+        schema.Run(
+            run_id=run_id,
+            subscription_id=subscription_id,
+            metric_lookback_days=metric_lookback_days,
+            cost_lookback_days=cost_lookback_days,
+            mock=mock,
+            provider_used=provider_used,
+            model=model,
+            status="running",
+        )
+    )
+    session.flush()
+
+
+def finish_run(session: Session, run_id: str, status: str, notes: str | None = None) -> None:
+    run = session.get(schema.Run, run_id)
+    if run is not None:
+        run.status = status
+        run.finished_at = datetime.now(UTC)
+        if notes:
+            run.notes = notes
+
+
+# --------------------------------------------------------------------------- #
+# Inventory + cost
+# --------------------------------------------------------------------------- #
+def upsert_resources(session: Session, resources: list[m.ResourceRecord]) -> int:
+    if not resources:
+        return 0
+    now = datetime.now(UTC)
+    dedup: dict[str, m.ResourceRecord] = {r.resource_id: r for r in resources}
+    rows = [
+        {
+            "resource_id": r.resource_id,
+            "subscription_id": r.subscription_id,
+            "resource_group": r.resource_group,
+            "name": r.name,
+            "type": r.type,
+            "location": r.location,
+            "sku": r.sku,
+            "tags": r.tags,
+            "power_state": r.power_state,
+            "last_seen": now,
+        }
+        for r in dedup.values()
+    ]
+    stmt = pg_insert(schema.Resource).values(rows)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["resource_id"],
+        set_={
+            "subscription_id": stmt.excluded.subscription_id,
+            "resource_group": stmt.excluded.resource_group,
+            "name": stmt.excluded.name,
+            "type": stmt.excluded.type,
+            "location": stmt.excluded.location,
+            "sku": stmt.excluded.sku,
+            "tags": stmt.excluded.tags,
+            "power_state": stmt.excluded.power_state,
+            "last_seen": stmt.excluded.last_seen,
+        },
+    )
+    session.execute(stmt)
+    return len(rows)
+
+
+def upsert_cost_snapshots(session: Session, rows: list[m.CostRow]) -> int:
+    if not rows:
+        return 0
+    dedup: dict[tuple, m.CostRow] = {}
+    for c in rows:
+        key = (
+            c.usage_date,
+            c.resource_id or "unassigned",
+            c.meter_category or "",
+            c.cost_type or "Amortized",
+        )
+        dedup[key] = c
+    payload = [
+        {
+            "usage_date": c.usage_date,
+            "resource_id": c.resource_id or "unassigned",
+            "meter_category": c.meter_category or "",
+            "cost_type": c.cost_type or "Amortized",
+            "subscription_id": c.subscription_id,
+            "resource_type": c.resource_type,
+            "resource_group": c.resource_group,
+            "location": c.location,
+            "service_name": c.service_name,
+            "cost": c.cost,
+            "currency": c.currency,
+        }
+        for c in dedup.values()
+    ]
+    stmt = pg_insert(schema.CostSnapshot).values(payload)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["usage_date", "resource_id", "meter_category", "cost_type"],
+        set_={
+            "cost": stmt.excluded.cost,
+            "currency": stmt.excluded.currency,
+            "subscription_id": stmt.excluded.subscription_id,
+            "resource_type": stmt.excluded.resource_type,
+            "resource_group": stmt.excluded.resource_group,
+            "location": stmt.excluded.location,
+            "service_name": stmt.excluded.service_name,
+        },
+    )
+    session.execute(stmt)
+    return len(payload)
+
+
+# --------------------------------------------------------------------------- #
+# Metrics + rollups
+# --------------------------------------------------------------------------- #
+def insert_metric_samples(session: Session, samples: list[m.MetricSample]) -> int:
+    if not samples:
+        return 0
+    dedup: dict[tuple, m.MetricSample] = {(s.ts, s.resource_id, s.metric_name): s for s in samples}
+    payload = [
+        {
+            "ts": s.ts,
+            "resource_id": s.resource_id,
+            "metric_name": s.metric_name,
+            "avg": s.avg,
+            "min": s.min,
+            "max": s.max,
+            "unit": s.unit,
+            "granularity": s.granularity,
+        }
+        for s in dedup.values()
+    ]
+    stmt = pg_insert(schema.UtilizationSample).values(payload)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["ts", "resource_id", "metric_name"],
+        set_={
+            "avg": stmt.excluded.avg,
+            "min": stmt.excluded.min,
+            "max": stmt.excluded.max,
+            "unit": stmt.excluded.unit,
+            "granularity": stmt.excluded.granularity,
+        },
+    )
+    session.execute(stmt)
+    return len(payload)
+
+
+def upsert_rollups(session: Session, rollups: list[m.UtilizationRollup]) -> int:
+    if not rollups:
+        return 0
+    dedup: dict[tuple, m.UtilizationRollup] = {(r.resource_id, r.window_end): r for r in rollups}
+    payload = [r.model_dump() for r in dedup.values()]
+    stmt = pg_insert(schema.UtilizationRollup).values(payload)
+    update_cols = {
+        c: getattr(stmt.excluded, c) for c in payload[0] if c not in {"resource_id", "window_end"}
+    }
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["resource_id", "window_end"], set_=update_cols
+    )
+    session.execute(stmt)
+    return len(payload)
+
+
+# --------------------------------------------------------------------------- #
+# Advisor
+# --------------------------------------------------------------------------- #
+def insert_advisor(session: Session, recs: list[dict[str, Any]]) -> int:
+    session.execute(delete(schema.AdvisorRecommendation))
+    for a in recs:
+        session.add(
+            schema.AdvisorRecommendation(
+                resource_id=a.get("resource_id"),
+                category=a.get("category"),
+                impact=a.get("impact"),
+                problem=a.get("problem"),
+                solution=a.get("solution"),
+                recommended_sku=a.get("recommended_sku"),
+                annual_savings=a.get("annual_savings"),
+                extended_properties=a.get("extended_properties") or {},
+            )
+        )
+    session.flush()
+    return len(recs)
+
+
+# --------------------------------------------------------------------------- #
+# Recommendations + AI summary
+# --------------------------------------------------------------------------- #
+def replace_recommendations(session: Session, run_id: str, recs: list[m.Recommendation]) -> int:
+    session.execute(delete(schema.Recommendation).where(schema.Recommendation.run_id == run_id))
+    for r in recs:
+        session.add(
+            schema.Recommendation(
+                run_id=run_id,
+                resource_id=r.resource_id,
+                category=r.category,
+                action=r.action,
+                current_sku=r.current_sku,
+                recommended_sku=r.recommended_sku,
+                risk=r.risk,
+                confidence=r.confidence,
+                est_monthly_savings=r.est_monthly_savings,
+                currency=r.currency,
+                source=r.source,
+                priority=r.priority,
+                rationale=r.rationale,
+                caveats=r.caveats,
+                evidence=r.evidence,
+                status="open",
+            )
+        )
+    session.flush()
+    return len(recs)
+
+
+def upsert_ai_summary(session: Session, run_id: str, summary: m.AISummary) -> None:
+    session.merge(
+        schema.AISummary(
+            run_id=run_id,
+            executive_summary=summary.executive_summary,
+            total_potential_savings=summary.total_potential_monthly_savings,
+            currency=summary.currency,
+            top_actions=[r.model_dump() for r in summary.recommendations[:10]],
+            provider=summary.provider,
+            model=summary.model,
+            input_tokens=summary.input_tokens,
+            output_tokens=summary.output_tokens,
+        )
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Read helpers (used by the API/UI)
+# --------------------------------------------------------------------------- #
+def _coerce(value: Any) -> Any:
+    # JSON-friendly numbers: Numeric columns come back as Decimal.
+    return float(value) if isinstance(value, Decimal) else value
+
+
+def _rows(session: Session, sql: str, **params: Any) -> list[dict[str, Any]]:
+    result = session.execute(text(sql), params)
+    return [{k: _coerce(v) for k, v in row._mapping.items()} for row in result]
+
+
+def latest_run(session: Session) -> dict[str, Any] | None:
+    rows = _rows(session, "SELECT * FROM runs ORDER BY started_at DESC LIMIT 1")
+    return rows[0] if rows else None
+
+
+def cost_by_type(session: Session) -> list[dict[str, Any]]:
+    return _rows(session, "SELECT * FROM v_cost_by_type ORDER BY cost DESC")
+
+
+def cost_by_region(session: Session) -> list[dict[str, Any]]:
+    return _rows(session, "SELECT * FROM v_cost_by_region ORDER BY cost DESC")
+
+
+def cost_by_resource(session: Session, limit: int = 50) -> list[dict[str, Any]]:
+    return _rows(
+        session,
+        "SELECT * FROM v_cost_by_resource ORDER BY cost DESC LIMIT :limit",
+        limit=limit,
+    )
+
+
+def total_cost(session: Session) -> float:
+    rows = _rows(session, "SELECT COALESCE(SUM(cost), 0) AS total FROM v_cost_by_type")
+    return float(rows[0]["total"]) if rows else 0.0
+
+
+def latest_recommendations(session: Session, limit: int = 200) -> list[dict[str, Any]]:
+    return _rows(
+        session,
+        "SELECT * FROM v_latest_recommendations ORDER BY priority ASC, est_monthly_savings DESC "
+        "LIMIT :limit",
+        limit=limit,
+    )

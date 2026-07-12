@@ -1,0 +1,12 @@
+[
+  {
+    "resource_id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourcegroups/rg-batch/providers/microsoft.compute/virtualmachines/vm-batch-02",
+    "category": "Cost",
+    "impact": "High",
+    "problem": "Right-size or shut down underutilized virtual machines",
+    "solution": "Shut down or deallocate vm-batch-02",
+    "recommended_sku": null,
+    "annual_savings": 1644.0,
+    "extended_properties": { "savingsAmount": "137", "savingsCurrency": "USD" }
+  }
+]

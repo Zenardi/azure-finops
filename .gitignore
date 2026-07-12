@@ -1,0 +1,39 @@
+# Secrets / local config
+.env
+*.env
+!.env.example
+.appdata/
+.cache/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+venv/
+env/
+
+# Node / Next.js
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+npm-debug.log*
+yarn-error.log*
+
+# Docker / data
+pgdata/
+grafana-data/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,34 @@
+apiVersion: 1
+
+datasources:
+  # Curated cost + recommendations (written by the backend). Grafana reads the
+  # SQL views defined in storage/db.py.
+  - name: FinOps Postgres
+    uid: finops_pg
+    type: postgres
+    access: proxy
+    url: ${FINOPS_DB_HOST}
+    user: ${FINOPS_DB_USER}
+    database: ${FINOPS_DB_NAME}
+    isDefault: true
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: true
+    secureJsonData:
+      password: ${FINOPS_DB_PASSWORD}
+
+  # Live raw metrics via the native Azure Monitor datasource. Needs the read SP
+  # creds in .env; panels using this DS error until AZURE_* are populated (this
+  # is expected in mock mode).
+  - name: Azure Monitor
+    uid: finops_azmon
+    type: grafana-azure-monitor-datasource
+    jsonData:
+      azureAuthType: clientsecret
+      cloudName: azuremonitor
+      tenantId: ${AZURE_TENANT_ID}
+      clientId: ${AZURE_CLIENT_ID}
+      subscriptionId: ${AZURE_SUBSCRIPTION_ID}
+    secureJsonData:
+      clientSecret: ${AZURE_CLIENT_SECRET}

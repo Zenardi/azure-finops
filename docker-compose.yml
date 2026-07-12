@@ -1,0 +1,73 @@
+name: azure-finops
+
+services:
+  db:
+    image: timescale/timescaledb:2.17.2-pg16
+    environment:
+      POSTGRES_USER: finops
+      POSTGRES_PASSWORD: finops
+      POSTGRES_DB: finops
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finops -d finops"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "5432:5432"
+
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://finops:finops@db:5432/finops
+      APP_DATA_DIR: /data
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - appdata:/data
+    ports:
+      - "8000:8000"
+    command: ["api"]
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    env_file: .env
+    environment:
+      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # Postgres datasource wiring for provisioning (read by datasources.yaml)
+      FINOPS_DB_HOST: db:5432
+      FINOPS_DB_NAME: finops
+      FINOPS_DB_USER: finops
+      FINOPS_DB_PASSWORD: finops
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+  # Built in Phase 4. Enable with: docker compose --profile frontend up
+  frontend:
+    build: ./frontend
+    profiles: ["frontend"]
+    env_file: .env
+    environment:
+      NEXT_PUBLIC_API_BASE: http://localhost:8000
+    depends_on:
+      - backend
+    ports:
+      - "3001:3000"
+
+volumes:
+  pgdata:
+  appdata:
+  grafana-data:

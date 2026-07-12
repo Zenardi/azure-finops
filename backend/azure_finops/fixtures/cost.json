@@ -1,0 +1,53 @@
+{
+  "currency": "USD",
+  "resources": [
+    {
+      "resource_id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-app/providers/Microsoft.Compute/virtualMachines/vm-web-01",
+      "resource_type": "microsoft.compute/virtualmachines",
+      "location": "eastus",
+      "service_name": "Virtual Machines",
+      "meter_category": "Virtual Machines",
+      "base_daily_cost": 6.85
+    },
+    {
+      "resource_id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-batch/providers/Microsoft.Compute/virtualMachines/vm-batch-02",
+      "resource_type": "microsoft.compute/virtualmachines",
+      "location": "westeurope",
+      "service_name": "Virtual Machines",
+      "meter_category": "Virtual Machines",
+      "base_daily_cost": 13.70
+    },
+    {
+      "resource_id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-app/providers/Microsoft.Compute/disks/disk-orphan-01",
+      "resource_type": "microsoft.compute/disks",
+      "location": "eastus",
+      "service_name": "Storage",
+      "meter_category": "Storage",
+      "base_daily_cost": 0.62
+    },
+    {
+      "resource_id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-net/providers/Microsoft.Network/publicIPAddresses/pip-idle-01",
+      "resource_type": "microsoft.network/publicipaddresses",
+      "location": "eastus",
+      "service_name": "Virtual Network",
+      "meter_category": "Virtual Network",
+      "base_daily_cost": 0.12
+    },
+    {
+      "resource_id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-web/providers/Microsoft.Web/serverfarms/asp-empty-01",
+      "resource_type": "microsoft.web/serverfarms",
+      "location": "westeurope",
+      "service_name": "Azure App Service",
+      "meter_category": "Azure App Service",
+      "base_daily_cost": 2.40
+    },
+    {
+      "resource_id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-app/providers/Microsoft.Storage/storageAccounts/stlogs01",
+      "resource_type": "microsoft.storage/storageaccounts",
+      "location": "eastus",
+      "service_name": "Storage",
+      "meter_category": "Storage",
+      "base_daily_cost": 1.05
+    }
+  ]
+}
