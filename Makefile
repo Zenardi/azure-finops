@@ -26,11 +26,14 @@ coverage: ## Run the full suite with the 95% gate (needs Docker for integration 
 run-mock: ## Run the full pipeline against fixtures (no Azure), local
 	cd backend && FINOPS_MOCK=1 DATABASE_URL=$${DATABASE_URL:-postgresql+psycopg://finops:finops@localhost:5432/finops} python -m azure_finops.cli run --mock
 
-up: ## Start core stack (db + backend + grafana)
+up: ## Start the full stack (db + backend + grafana + frontend)
+	$(COMPOSE) up -d --build
+
+up-core: ## Start without the frontend (db + backend + grafana only)
 	$(COMPOSE) up -d --build db backend grafana
 
-up-all: ## Start everything incl. frontend
-	$(COMPOSE) --profile frontend up -d --build
+up-all: ## Alias for `up` (frontend is part of the default stack)
+	$(COMPOSE) up -d --build
 
 down: ## Stop the stack
 	$(COMPOSE) down
@@ -44,4 +47,4 @@ initdb: ## Create/upgrade the database schema (in-container)
 seed: ## Run one mock pipeline inside the backend container
 	$(COMPOSE) run --rm backend python -m azure_finops.cli run --mock
 
-.PHONY: help install install-dev lint fmt test coverage run-mock up up-all down logs initdb seed
+.PHONY: help install install-dev lint fmt test coverage run-mock up up-core up-all down logs initdb seed

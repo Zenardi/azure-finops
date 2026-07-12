@@ -61,10 +61,9 @@ services:
     ports:
       - "3000:3000"
 
-  # Built in Phase 4. Enable with: docker compose --profile frontend up
+  # Next.js UI (Phase 4). Part of the default stack — `docker compose up` starts it.
   frontend:
     build: ./frontend
-    profiles: ["frontend"]
     env_file: .env
     environment:
       NEXT_PUBLIC_API_BASE: http://localhost:8000
