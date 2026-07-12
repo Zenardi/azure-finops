@@ -6,6 +6,19 @@ All notable changes to this project are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **M1.2 — Policy domain model & storage.** New `policies` table (`Policy` ORM in
+  `storage/schema.py`) persisting governance-as-code rules: `id`, unique `name`,
+  indexed `resource_type`, the parsed Custodian body as JSONB `spec`,
+  `description`, an `enabled` flag, a `version` that increments on each update,
+  and a `source` (`custom` | `library` | `imported`), plus server-managed
+  `created_at`/`updated_at`. Six repository functions (`create_policy`,
+  `get_policy`, `list_policies` with `enabled_only`, `update_policy`,
+  `delete_policy`, `set_policy_enabled`) and a `_policy_public` serializer follow
+  the existing `Subscription`/`Recommendation` pattern, with `PolicyRecord` /
+  `PolicyCreate` pydantic models for API validation. Test-first (TDD):
+  `test_policy_repository.py` (9 DB-backed tests) covers the CRUD + enable-toggle
+  happy paths and the negative cases (duplicate-name integrity error with no
+  partial row, missing-id returns `None`) at 100% line coverage on the new code.
 - **M1.1 — Cloud Custodian engine wrapper.** New `custodian/` package embedding
   [Cloud Custodian](https://cloudcustodian.io/) (`c7n` + `c7n-azure`) as the
   policy engine (the same open-source rules engine Stacklet packages
