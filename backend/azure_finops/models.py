@@ -152,6 +152,38 @@ class PolicyVersionRecord(BaseModel):
     created_at: str | None = None
 
 
+class PolicyMatch(BaseModel):
+    """A resource a policy matched during an execution (transport shape, M3.1).
+
+    The parent ``execution_id`` is supplied to ``insert_policy_matches`` rather than
+    carried here, mirroring how ``Recommendation`` omits its ``run_id``.
+    """
+
+    resource_id: str
+    resource_type: str | None = None
+    action_taken: str | None = None
+    action_result: dict = Field(default_factory=dict)
+
+
+class PolicyExecution(BaseModel):
+    """One policy run and its outcome (transport shape, M3.1).
+
+    Mirrors the ``policy_executions`` ORM row 1:1 so the M3.2 orchestrator can build
+    results without importing SQLAlchemy. Timestamps are ISO-8601 strings (as the
+    repository serializes them); the store assigns them server-side.
+    """
+
+    execution_id: str
+    policy_id: int
+    subscription_id: str | None = None
+    status: str = "running"
+    started_at: str | None = None
+    finished_at: str | None = None
+    resources_matched: int = 0
+    actions_taken: list = Field(default_factory=list)
+    error: str | None = None
+
+
 class CollectionCreate(BaseModel):
     """Inbound shape for creating a policy collection."""
 

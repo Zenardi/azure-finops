@@ -6,6 +6,28 @@ All notable changes to this project are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **M3.1 — Execution results domain model & storage.** The persistence foundation
+  for recording what Cloud Custodian actually did (à la Stacklet executions), ahead
+  of the M3.2 orchestrator. Two new tables, auto-created by `init_db()`:
+  `policy_executions` (one row per policy run — `execution_id` PK, `policy_id` FK →
+  `policies.id`, `subscription_id`, `status` `running|succeeded|failed`, started/
+  finished timestamps, `resources_matched`, `actions_taken` JSONB, `error`) and
+  `policy_matches` (per-resource detail — FK → `policy_executions.execution_id`,
+  `resource_id`, `resource_type`, `matched_at`, `action_taken`, `action_result`
+  JSONB). Mirrored Pydantic transport models `PolicyExecution` / `PolicyMatch` let
+  the orchestrator build results without importing SQLAlchemy. Six repository
+  functions mirror the existing `create_run`/`finish_run` lifecycle:
+  `create_policy_execution` (defaults to `running`), `finish_policy_execution`
+  (stamps `finished_at` + terminal status/counts; no-op for an unknown id),
+  `insert_policy_matches` (plain inserts, returns the count), `get_policy_execution`
+  (`None` when missing), `list_policy_executions` (filter by any of `policy_id` /
+  `subscription_id` / `status`, newest-first, limited), and `list_policy_matches`
+  (newest-first). Pure storage — no orchestration or API here (that's M3.2/M3.3).
+  Note: the FK targets the real `policies.id` PK (the issue's `policies.policy_id`
+  predates the M2 schema). TDD: `test_policy_storage.py` (14 tests, DB-backed)
+  covers table creation, the create→matches→finish lifecycle, each filter alone and
+  combined, limit, ordering, and unknown-id → `None` — 100% coverage on the changed
+  code.
 - **M2.5 — Policy version history & diff.** Every content change to a policy is
   captured as an immutable snapshot for audit and rollback. New `policy_versions`
   table (FK to `policies`, `ON DELETE CASCADE`) recording `version` + the authored

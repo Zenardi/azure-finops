@@ -143,6 +143,51 @@ class CollectionPolicy(Base):
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class PolicyExecution(Base):
+    """One scheduled/triggered run of a policy and its outcome (M3.1).
+
+    Mirrors the ``runs``/:class:`Run` lifecycle: a row is created ``running`` when
+    a policy fires, then ``finish_policy_execution`` stamps ``finished_at`` and a
+    terminal ``status`` (``succeeded``/``failed``). ``resources_matched`` and the
+    ``actions_taken`` JSONB summarise what Cloud Custodian did; per-resource detail
+    lives in :class:`PolicyMatch`. ``policy_id`` references the real ``policies.id``
+    PK (the M2 policy PK is the autoincrement ``id``, not a string ``policy_id``).
+    """
+
+    __tablename__ = "policy_executions"
+
+    execution_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    policy_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("policies.id"), index=True)
+    subscription_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="running")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resources_matched: Mapped[int] = mapped_column(Integer, default=0)
+    actions_taken: Mapped[list] = mapped_column(JSONB, default=list)
+    error: Mapped[str | None] = mapped_column(Text)
+
+
+class PolicyMatch(Base):
+    """A single resource a policy matched during a :class:`PolicyExecution` (M3.1).
+
+    ``execution_id`` is freshly minted per run so there is no conflict risk — rows
+    are plain inserts (no upsert). ``action_result`` holds the structured outcome
+    of any action, the same JSONB-payload pattern as ``RemediationAction.result``.
+    """
+
+    __tablename__ = "policy_matches"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    execution_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("policy_executions.execution_id"), index=True
+    )
+    resource_id: Mapped[str] = mapped_column(String(512), index=True)
+    resource_type: Mapped[str | None] = mapped_column(String(256))
+    matched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    action_taken: Mapped[str | None] = mapped_column(String(64))
+    action_result: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+
 class Run(Base):
     __tablename__ = "runs"
 
