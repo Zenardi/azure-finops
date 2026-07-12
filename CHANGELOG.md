@@ -40,3 +40,15 @@ All notable changes to this project are documented here. Format loosely follows
   (dry-run default) and `GET /api/remediation`, plus a Remediation audit page and
   a Remediate action on approved recommendations. Dry-run by default and fully
   mockable — no Azure writes unless explicitly enabled with the write SP.
+
+### Testing
+- Test suite raised to **77 tests / ~98% line coverage** (95% gate enforced via
+  `[tool.coverage.report] fail_under`). Adds a Postgres-backed integration suite
+  (testcontainers) covering repository/orchestrator/API/approval/CLI/scheduler,
+  fake-client tests for every live-Azure path, and resilience/auth/provider
+  units. GitHub Actions CI (`.github/workflows/ci.yml`) runs Ruff + coverage +
+  the Next.js build. Added `backend/requirements-dev.txt` and `make coverage`.
+
+### Fixed
+- `azure-mgmt-resourcegraph` imports `six` without declaring it; pinned `six` in
+  `requirements.txt` so the live inventory path works in the container.

@@ -28,3 +28,13 @@ addopts = "-q"
 [tool.coverage.run]
 source = ["azure_finops"]
 omit = ["backend/tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 95
+exclude_also = [
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "pragma: no cover",
+]

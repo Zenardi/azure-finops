@@ -13,7 +13,7 @@ default; any OpenAI-compatible/local model).
 |------|-------|-------|
 | 0 | Scaffold (config, auth, resilience, storage, Docker, CI tooling) | ✅ done |
 | 1 | **MVP:** cost + inventory → Postgres/Timescale → Grafana cost dashboard | ✅ done, verified |
-| 2 | Metrics collector + FinOps rules (shutdown/downsize/idle) + savings | 🔜 scaffolded |
+| 2 | Metrics collector + FinOps rules (shutdown/downsize/idle) + savings | ✅ done |
 | 3 | Pluggable AI recommendations + executive summary | ✅ done |
 | 4 | FastAPI + Next.js UI (review/approve) | ✅ done |
 | 5 | Guarded remediation (deallocate/resize/delete, dry-run default) | ✅ done |
@@ -123,11 +123,17 @@ docker-compose.yml  Makefile  .env.example
 
 ```bash
 python -m venv .venv && . .venv/bin/activate
-pip install -r backend/requirements.txt
+pip install -r backend/requirements-dev.txt
 make lint      # ruff
-make test      # pytest (mock-mode unit tests; no DB/Azure needed)
+make test      # offline unit tests (no DB/Azure needed)
+make coverage  # full suite + 95% gate (spins an ephemeral Postgres via testcontainers; needs Docker)
 make run-mock  # run pipeline locally against a Postgres at localhost:5432
 ```
+
+**Tests:** 77 tests, **~98% line coverage** (gate at 95%, enforced in CI —
+`.github/workflows/ci.yml`). Live-Azure code paths are covered via injected fake
+clients; the DB/API/orchestrator/remediation flows run against a throwaway
+PostgreSQL (testcontainers).
 
 ## License
 

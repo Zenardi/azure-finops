@@ -1,0 +1,6 @@
+# Test/dev tooling (not needed at runtime).
+-r requirements.txt
+pytest>=8.3
+pytest-cov>=5.0
+ruff>=0.6
+testcontainers[postgres]>=4.8
