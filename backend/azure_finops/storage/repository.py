@@ -58,6 +58,134 @@ def finish_run(session: Session, run_id: str, status: str, notes: str | None = N
 
 
 # --------------------------------------------------------------------------- #
+# Policy executions + matches (M3.1) — audit trail of what policies did
+# --------------------------------------------------------------------------- #
+def _policy_execution_public(rec: schema.PolicyExecution) -> dict[str, Any]:
+    """Serialize an execution row into a JSON-friendly dict (timestamps as ISO-8601)."""
+    return {
+        "execution_id": rec.execution_id,
+        "policy_id": rec.policy_id,
+        "subscription_id": rec.subscription_id,
+        "status": rec.status,
+        "started_at": rec.started_at.isoformat() if rec.started_at else None,
+        "finished_at": rec.finished_at.isoformat() if rec.finished_at else None,
+        "resources_matched": rec.resources_matched,
+        "actions_taken": rec.actions_taken,
+        "error": rec.error,
+    }
+
+
+def _policy_match_public(rec: schema.PolicyMatch) -> dict[str, Any]:
+    """Serialize a policy-match row into a JSON-friendly dict."""
+    return {
+        "id": rec.id,
+        "execution_id": rec.execution_id,
+        "resource_id": rec.resource_id,
+        "resource_type": rec.resource_type,
+        "matched_at": rec.matched_at.isoformat() if rec.matched_at else None,
+        "action_taken": rec.action_taken,
+        "action_result": rec.action_result,
+    }
+
+
+def create_policy_execution(
+    session: Session,
+    *,
+    execution_id: str,
+    policy_id: int,
+    subscription_id: str | None,
+    status: str = "running",
+) -> None:
+    """Open a policy execution (defaults to ``running``), mirroring ``create_run``."""
+    session.add(
+        schema.PolicyExecution(
+            execution_id=execution_id,
+            policy_id=policy_id,
+            subscription_id=subscription_id,
+            status=status,
+        )
+    )
+    session.flush()
+
+
+def finish_policy_execution(
+    session: Session,
+    execution_id: str,
+    *,
+    status: str,
+    resources_matched: int = 0,
+    actions_taken: list[Any] | None = None,
+    error: str | None = None,
+) -> None:
+    """Close out an execution (status/timestamp/counts). No-op for an unknown id."""
+    rec = session.get(schema.PolicyExecution, execution_id)
+    if rec is None:
+        return
+    rec.status = status
+    rec.finished_at = datetime.now(UTC)
+    rec.resources_matched = resources_matched
+    rec.actions_taken = actions_taken if actions_taken is not None else []
+    rec.error = error
+
+
+def insert_policy_matches(session: Session, execution_id: str, matches: list[m.PolicyMatch]) -> int:
+    """Persist per-resource matches for an execution (plain inserts). Returns the count."""
+    if not matches:
+        return 0
+    session.add_all(
+        schema.PolicyMatch(
+            execution_id=execution_id,
+            resource_id=match.resource_id,
+            resource_type=match.resource_type,
+            action_taken=match.action_taken,
+            action_result=match.action_result,
+        )
+        for match in matches
+    )
+    session.flush()
+    return len(matches)
+
+
+def get_policy_execution(session: Session, execution_id: str) -> dict[str, Any] | None:
+    rec = session.get(schema.PolicyExecution, execution_id)
+    return _policy_execution_public(rec) if rec is not None else None
+
+
+def list_policy_executions(
+    session: Session,
+    *,
+    policy_id: int | None = None,
+    subscription_id: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """List executions newest-first, filtered by any combination of the given args."""
+    query = session.query(schema.PolicyExecution)
+    if policy_id is not None:
+        query = query.filter(schema.PolicyExecution.policy_id == policy_id)
+    if subscription_id is not None:
+        query = query.filter(schema.PolicyExecution.subscription_id == subscription_id)
+    if status is not None:
+        query = query.filter(schema.PolicyExecution.status == status)
+    recs = query.order_by(schema.PolicyExecution.started_at.desc()).limit(limit).all()
+    return [_policy_execution_public(r) for r in recs]
+
+
+def list_policy_matches(
+    session: Session, execution_id: str, limit: int = 500
+) -> list[dict[str, Any]]:
+    """List an execution's matches newest-first (``id`` breaks same-timestamp ties)."""
+    recs = (
+        session.query(schema.PolicyMatch)
+        .filter_by(execution_id=execution_id)
+        .order_by(schema.PolicyMatch.matched_at.desc(), schema.PolicyMatch.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [_policy_match_public(r) for r in recs]
+
+
+# --------------------------------------------------------------------------- #
 # Subscriptions (multi-subscription management)
 # --------------------------------------------------------------------------- #
 def _subscription_public(rec: schema.Subscription) -> dict[str, Any]:
