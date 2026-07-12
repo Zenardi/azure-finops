@@ -6,6 +6,22 @@ All notable changes to this project are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **M2.4 — GitOps policy sync.** New `custodian/gitops.py` with
+  `sync_policies(git_client=None, runner=None)` and a `POST /api/policies/sync`
+  endpoint: it clones/pulls a configured Git repo (`GITOPS_REPO_URL` /
+  `GITOPS_BRANCH` / `GITOPS_POLICY_PATH`), parses the policy YAML/JSON files,
+  validates each policy through the engine, and **upserts by name** with
+  `source='gitops'` (new `repository.upsert_policy_by_name` returning
+  `added`/`updated`/`unchanged`). Unparseable or schema-invalid files are
+  **skipped and reported** (non-fatal); the sync is **idempotent** (a no-op
+  re-sync writes nothing — versions stay put); a clone/pull failure returns a
+  structured error instead of a `500`. The `GitClient` seam is injectable (the
+  default `LiveGitClient` shells out to `git`), so the whole pipeline is
+  unit-tested offline. TDD: `test_gitops_sync.py` (13 tests, DB-backed + a
+  `FakeGitClient` over a temp fixture repo + injected `FakeCustodianRunner`)
+  covers import / update / skip-invalid-and-report / idempotence / `source=gitops`
+  / clone-failure — 100% line coverage on the changed code. New `GITOPS_*` config
+  in `config.py` + `.env.example`.
 - **M2.3 — Policy collections.** Group policies into named **collections** (à la
   Stacklet policy collections). New `policy_collections` table + a
   `collection_policies` many-to-many join (both FKs `ON DELETE CASCADE`), so a
