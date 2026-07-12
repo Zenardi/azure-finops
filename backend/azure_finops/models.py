@@ -83,6 +83,31 @@ class Recommendation(BaseModel):
     evidence: dict = Field(default_factory=dict)
 
 
+class PolicyCreate(BaseModel):
+    """Inbound shape for creating a governance policy (API validation)."""
+
+    name: str
+    resource_type: str
+    spec: dict = Field(default_factory=dict)
+    description: str | None = None
+    source: str = "custom"  # custom | library | imported
+
+
+class PolicyRecord(BaseModel):
+    """A persisted governance policy as returned by the repository."""
+
+    id: int
+    name: str
+    resource_type: str
+    spec: dict = Field(default_factory=dict)
+    description: str | None = None
+    enabled: bool = True
+    version: int = 1
+    source: str = "custom"
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
 class AISummary(BaseModel):
     executive_summary: str = ""
     total_potential_monthly_savings: float = 0.0

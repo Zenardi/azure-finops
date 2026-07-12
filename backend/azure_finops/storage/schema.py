@@ -54,6 +54,31 @@ class Subscription(Base):
     )
 
 
+class Policy(Base):
+    """A governance-as-code rule (Cloud Custodian policy) persisted for CRUD.
+
+    ``spec`` holds the parsed Custodian policy body (the mapping that would sit
+    under a single ``policies:`` list entry). ``version`` bumps on every
+    ``update_policy`` so callers can detect drift, and ``source`` distinguishes
+    user-authored policies from ``library``/``imported`` ones.
+    """
+
+    __tablename__ = "policies"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(256), unique=True)
+    resource_type: Mapped[str] = mapped_column(String(128), index=True)
+    spec: Mapped[dict] = mapped_column(JSONB, default=dict)
+    description: Mapped[str | None] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    source: Mapped[str] = mapped_column(String(32), default="custom")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Run(Base):
     __tablename__ = "runs"
 

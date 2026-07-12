@@ -170,6 +170,105 @@ def ensure_default_subscription(session: Session, settings: Any) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Policies (governance-as-code CRUD)
+# --------------------------------------------------------------------------- #
+def _policy_public(rec: schema.Policy) -> dict[str, Any]:
+    """Serialize a policy row into a JSON-friendly dict (timestamps as ISO-8601)."""
+    return {
+        "id": rec.id,
+        "name": rec.name,
+        "resource_type": rec.resource_type,
+        "spec": rec.spec,
+        "description": rec.description,
+        "enabled": rec.enabled,
+        "version": rec.version,
+        "source": rec.source,
+        "created_at": rec.created_at.isoformat() if rec.created_at else None,
+        "updated_at": rec.updated_at.isoformat() if rec.updated_at else None,
+    }
+
+
+def create_policy(
+    session: Session,
+    *,
+    name: str,
+    resource_type: str,
+    spec: dict[str, Any],
+    description: str | None = None,
+    source: str = "custom",
+) -> dict[str, Any]:
+    """Persist a new policy (enabled, version 1). Raises on a duplicate ``name``."""
+    rec = schema.Policy(
+        name=name,
+        resource_type=resource_type,
+        spec=spec,
+        description=description,
+        source=source,
+    )
+    session.add(rec)
+    session.flush()
+    return _policy_public(rec)
+
+
+def get_policy(session: Session, policy_id: int) -> dict[str, Any] | None:
+    rec = session.get(schema.Policy, policy_id)
+    return _policy_public(rec) if rec is not None else None
+
+
+def list_policies(session: Session, enabled_only: bool = False) -> list[dict[str, Any]]:
+    query = session.query(schema.Policy)
+    if enabled_only:
+        query = query.filter(schema.Policy.enabled.is_(True))
+    recs = query.order_by(schema.Policy.name.asc()).all()
+    return [_policy_public(r) for r in recs]
+
+
+def update_policy(
+    session: Session,
+    policy_id: int,
+    *,
+    name: str | None = None,
+    resource_type: str | None = None,
+    spec: dict[str, Any] | None = None,
+    description: str | None = None,
+) -> dict[str, Any] | None:
+    """Apply the supplied fields and bump ``version``. Returns ``None`` if missing."""
+    rec = session.get(schema.Policy, policy_id)
+    if rec is None:
+        return None
+    if name is not None:
+        rec.name = name
+    if resource_type is not None:
+        rec.resource_type = resource_type
+    if spec is not None:
+        rec.spec = spec
+    if description is not None:
+        rec.description = description
+    rec.version += 1
+    session.flush()
+    return _policy_public(rec)
+
+
+def delete_policy(session: Session, policy_id: int) -> bool:
+    rec = session.get(schema.Policy, policy_id)
+    if rec is None:
+        return False
+    session.delete(rec)
+    session.flush()
+    return True
+
+
+def set_policy_enabled(session: Session, policy_id: int, enabled: bool) -> dict[str, Any] | None:
+    """Toggle the ``enabled`` flag. Returns ``None`` if the policy is missing."""
+    rec = session.get(schema.Policy, policy_id)
+    if rec is None:
+        return None
+    rec.enabled = enabled
+    session.flush()
+    return _policy_public(rec)
+
+
+# --------------------------------------------------------------------------- #
 # Inventory + cost
 # --------------------------------------------------------------------------- #
 def upsert_resources(session: Session, resources: list[m.ResourceRecord]) -> int:

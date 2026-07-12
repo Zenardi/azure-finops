@@ -68,6 +68,14 @@ instead of the c7n CLI or live Azure. Importing `c7n_azure.entry` registers the
 `AZURE_*` credentials as the collectors and, in `FINOPS_MOCK=1` mode, evaluates
 policies against a recorded fixture so dry-runs run fully offline.
 
+Authored policies are persisted in a **`policies`** table (M1.2) — `id`, unique
+`name`, `resource_type` (e.g. `azure.vm`), the parsed Custodian body as JSONB
+`spec`, `description`, an `enabled` flag, a `version` that bumps on every update,
+and a `source` (`custom` | `library` | `imported`). CRUD lives behind
+`storage/repository.py` (`create_policy` / `get_policy` / `list_policies` /
+`update_policy` / `delete_policy` / `set_policy_enabled`) alongside the cost and
+recommendation tables.
+
 ## Quickstart (mock mode, no Azure needed)
 
 Prerequisites: Docker with Compose v2 (`docker compose`).
@@ -158,7 +166,7 @@ make coverage  # full suite + 95% gate (spins an ephemeral Postgres via testcont
 make run-mock  # run pipeline locally against a Postgres at localhost:5432
 ```
 
-**Tests:** 106 tests, **~98% line coverage** (gate at 95%, enforced in CI —
+**Tests:** 132 tests, **~98% line coverage** (gate at 95%, enforced in CI —
 `.github/workflows/ci.yml`). Live-Azure code paths are covered via injected fake
 clients; the DB/API/orchestrator/remediation flows run against a throwaway
 PostgreSQL (testcontainers).
