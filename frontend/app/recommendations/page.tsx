@@ -8,6 +8,7 @@ export default function Recommendations() {
   const [recs, setRecs] = useState<Recommendation[]>([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState<number | null>(null);
+  const [msg, setMsg] = useState<string>("");
 
   const load = useCallback(async () => {
     try {
@@ -33,6 +34,21 @@ export default function Recommendations() {
     }
   }
 
+  async function remediate(id: number) {
+    setBusy(id);
+    try {
+      const res = await apiPost<any>(
+        `/api/recommendations/${id}/remediate?dry_run=true&actor=ui`,
+      );
+      setMsg(`Remediation (${res.status}): ${res.message || res.action_type}`);
+      await load();
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const total = recs.reduce((s, r) => s + (r.est_monthly_savings || 0), 0);
 
   return (
@@ -43,6 +59,7 @@ export default function Recommendations() {
         (Phase 5). Total potential: <strong>{money(total)}</strong>/mo.
       </p>
       {err && <div className="err">{err}</div>}
+      {msg && <div className="summary" style={{ marginBottom: 14 }}>{msg}</div>}
 
       <table>
         <thead>
@@ -83,6 +100,15 @@ export default function Recommendations() {
                   >
                     Reject
                   </button>
+                  {r.status === "approved" && (
+                    <button
+                      className="primary"
+                      disabled={busy === r.id}
+                      onClick={() => remediate(r.id)}
+                    >
+                      Remediate (dry-run)
+                    </button>
+                  )}
                 </div>
               </td>
             </tr>

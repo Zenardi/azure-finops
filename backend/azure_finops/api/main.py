@@ -15,6 +15,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from ..remediation import approval as remediation
 from ..resilience import REGISTRY
 from ..storage import repository as repo
 from ..storage.db import init_db, session_scope
@@ -119,3 +120,20 @@ def trigger_run(mock: bool = False) -> dict[str, Any]:
     from ..orchestrator import run_pipeline
 
     return run_pipeline(mock=True if mock else None)
+
+
+@app.post("/api/recommendations/{rec_id}/remediate")
+def remediate(rec_id: int, dry_run: bool = True, actor: str | None = None) -> dict[str, Any]:
+    with session_scope() as session:
+        try:
+            return remediation.remediate(session, rec_id, actor=actor or "ui", dry_run=dry_run)
+        except remediation.NotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except remediation.NotApproved as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/remediation")
+def remediation_actions(limit: int = 100) -> list[dict[str, Any]]:
+    with session_scope() as session:
+        return repo.list_remediation_actions(session, limit=limit)

@@ -33,3 +33,10 @@ All notable changes to this project are documented here. Format loosely follows
   (App Router, standalone output) UI — overview (KPIs + AI summary + Grafana
   links), cost explorer, recommendations review/approve, and run history/trigger.
   Served via the `frontend` compose profile (`make up-all`).
+- **Phase 5 — Guarded remediation:** executor (VM deallocate/resize, delete
+  unattached disk / idle public IP) + guardrails (REMEDIATION_ENABLED forces
+  dry-run, resource-group allow-list, `finops:exclude` tag) + approval flow with
+  a `remediation_actions` audit trail. `POST /api/recommendations/{id}/remediate`
+  (dry-run default) and `GET /api/remediation`, plus a Remediation audit page and
+  a Remediate action on approved recommendations. Dry-run by default and fully
+  mockable — no Azure writes unless explicitly enabled with the write SP.

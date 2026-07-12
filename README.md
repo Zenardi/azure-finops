@@ -16,7 +16,7 @@ default; any OpenAI-compatible/local model).
 | 2 | Metrics collector + FinOps rules (shutdown/downsize/idle) + savings | 🔜 scaffolded |
 | 3 | Pluggable AI recommendations + executive summary | ✅ done |
 | 4 | FastAPI + Next.js UI (review/approve) | ✅ done |
-| 5 | Guarded remediation (deallocate/resize/delete, dry-run default) | 🔜 scaffolded |
+| 5 | Guarded remediation (deallocate/resize/delete, dry-run default) | ✅ done |
 
 The MVP runs fully offline with recorded fixtures (`FINOPS_MOCK=1`) — no Azure
 subscription required to see the pipeline and dashboards working.
