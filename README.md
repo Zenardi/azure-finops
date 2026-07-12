@@ -111,6 +111,15 @@ the membership rows). The API is `GET/POST /api/collections`,
 or collection returns `404`); a **Collections** page manages collections and their
 membership in the UI.
 
+Policies can also be managed **GitOps-style** (M2.4): point `GITOPS_REPO_URL`
+(+ `GITOPS_BRANCH` / `GITOPS_POLICY_PATH`) at a Git repo of Custodian policy YAML,
+then `POST /api/policies/sync` clones/pulls it, validates each policy, and
+**upserts by name** with `source='gitops'`. Unparseable or schema-invalid files
+are **skipped and reported** (non-fatal), the sync is **idempotent** (a no-op
+re-sync writes nothing), and a clone/pull failure returns a structured error
+rather than a `500`. The Git client is an injectable seam, so the whole pipeline
+is unit-tested offline against a fixture repo.
+
 Two API endpoints expose the engine's offline surface (M1.3):
 
 - `POST /api/policies/validate` — dry-run schema-validate a policy `spec` (a
@@ -160,7 +169,7 @@ Then open:
   → **FinOps — Cost Overview** (cost by type / region / resource + daily trend).
 - **API docs** → http://localhost:8000/docs (`/api/costs/summary`, `/api/recommendations`,
   `/api/policies` CRUD, `/api/policies/validate`, `/api/custodian/schema`,
-  `/api/policies/{id}/dryrun`, `/api/collections`, …).
+  `/api/policies/{id}/dryrun`, `/api/policies/sync`, `/api/collections`, …).
 
 Run the backend on a schedule instead of one-shot: the `backend` service also
 supports `command: ["scheduler"]`.
@@ -199,6 +208,7 @@ encryption backing is the intended hardening step.
 | `COST_LOOKBACK_DAYS` / `METRIC_LOOKBACK_DAYS` | analysis windows |
 | `REMEDIATION_ENABLED` | `false` = dry-run only |
 | `LOG_ANALYTICS_WORKSPACE_ID` | enables memory-based downsize rules |
+| `GITOPS_REPO_URL` / `GITOPS_BRANCH` / `GITOPS_POLICY_PATH` | GitOps policy sync source (blank URL disables) |
 
 Full list: `.env.example`.
 
@@ -231,7 +241,7 @@ make coverage  # full suite + 95% gate (spins an ephemeral Postgres via testcont
 make run-mock  # run pipeline locally against a Postgres at localhost:5432
 ```
 
-**Tests:** 174 tests, **~98% line coverage** (gate at 95%, enforced in CI —
+**Tests:** 187 tests, **~98% line coverage** (gate at 95%, enforced in CI —
 `.github/workflows/ci.yml`). Live-Azure code paths are covered via injected fake
 clients; the DB/API/orchestrator/remediation flows run against a throwaway
 PostgreSQL (testcontainers).

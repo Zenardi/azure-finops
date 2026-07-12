@@ -268,6 +268,50 @@ def set_policy_enabled(session: Session, policy_id: int, enabled: bool) -> dict[
     return _policy_public(rec)
 
 
+def upsert_policy_by_name(
+    session: Session,
+    *,
+    name: str,
+    resource_type: str,
+    spec: dict[str, Any],
+    description: str | None = None,
+    source: str = "gitops",
+) -> str:
+    """Insert or update a policy keyed by ``name`` (used by GitOps sync).
+
+    Returns ``"added"``, ``"updated"``, or ``"unchanged"``. When the incoming
+    fields are identical to the stored row nothing is written (idempotent), so a
+    no-op re-sync never bumps ``version``.
+    """
+    existing = session.query(schema.Policy).filter(schema.Policy.name == name).one_or_none()
+    if existing is None:
+        session.add(
+            schema.Policy(
+                name=name,
+                resource_type=resource_type,
+                spec=spec,
+                description=description,
+                source=source,
+            )
+        )
+        session.flush()
+        return "added"
+    if (
+        existing.spec == spec
+        and existing.resource_type == resource_type
+        and existing.description == description
+        and existing.source == source
+    ):
+        return "unchanged"
+    existing.resource_type = resource_type
+    existing.spec = spec
+    existing.description = description
+    existing.source = source
+    existing.version += 1
+    session.flush()
+    return "updated"
+
+
 # --------------------------------------------------------------------------- #
 # Policy collections (many-to-many grouping)
 # --------------------------------------------------------------------------- #

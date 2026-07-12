@@ -270,6 +270,18 @@ def set_policy_enabled(policy_id: int, enabled: bool = True) -> dict[str, Any]:
     return _policy_view(updated)
 
 
+@app.post("/api/policies/sync")
+def sync_policies(
+    runner: Annotated[CustodianRunner | None, Depends(get_custodian_runner)] = None,
+) -> dict[str, Any]:
+    """Sync policies from the configured Git repo (GitOps). Returns a structured
+    report (``ok`` + added/updated/unchanged/skipped counts + errors) and never
+    surfaces a ``500`` for a git/validation failure."""
+    from ..custodian import gitops
+
+    return gitops.sync_policies(runner=runner)
+
+
 @app.post("/api/policies/{policy_id}/dryrun")
 def dryrun_policy(
     policy_id: int,

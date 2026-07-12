@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     downsize_cpu_max: float = 80.0
     downsize_mem_p95: float = 50.0
 
+    # --- GitOps policy sync ---
+    gitops_repo_url: str = ""  # empty disables sync
+    gitops_branch: str = "main"
+    gitops_policy_path: str = "policies"  # path within the repo holding policy YAML
+
     # --- Remediation guardrails ---
     remediation_enabled: bool = False
     allowed_resource_groups: str = ""
