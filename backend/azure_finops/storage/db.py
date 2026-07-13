@@ -158,6 +158,65 @@ SELECT
 FROM ranked r
 JOIN policies p ON p.id = r.policy_id
 WHERE r.rn = 1;
+
+-- Policy execution health (M9.2): the governance engine's OWN health, per policy.
+-- Aggregates every execution into succeeded/failed counts, a rounded success rate,
+-- the average wall-clock duration in seconds (over finished runs only), and the last
+-- run's time/status. INNER JOIN -- a never-run policy is absent (empty state = no
+-- rows). EXTRACT(EPOCH ...) is double precision, so cast to numeric before ROUND.
+CREATE OR REPLACE VIEW v_execution_health AS
+SELECT
+    p.id                                                        AS policy_id,
+    p.name                                                      AS policy_name,
+    COUNT(e.execution_id)                                       AS total_executions,
+    COUNT(e.execution_id) FILTER (WHERE e.status = 'succeeded')  AS succeeded,
+    COUNT(e.execution_id) FILTER (WHERE e.status = 'failed')     AS failed,
+    ROUND(
+        (COUNT(e.execution_id) FILTER (WHERE e.status = 'succeeded'))::numeric
+        / NULLIF(COUNT(e.execution_id), 0),
+        4
+    )                                                            AS success_rate,
+    COALESCE(
+        ROUND(
+            (AVG(EXTRACT(EPOCH FROM (e.finished_at - e.started_at)))
+             FILTER (WHERE e.finished_at IS NOT NULL))::numeric,
+            3
+        ),
+        0
+    )                                                            AS avg_duration_seconds,
+    MAX(e.started_at)                                           AS last_execution_at,
+    (ARRAY_AGG(e.status ORDER BY e.started_at DESC, e.execution_id DESC))[1] AS last_status
+FROM policies p
+JOIN policy_executions e ON e.policy_id = p.id
+GROUP BY p.id, p.name;
+
+-- Same measures at the binding grain (M9.2): only binding-triggered executions
+-- (binding_id NOT NULL) -- a pull-mode run with no binding is excluded here but
+-- still counted per-policy above.
+CREATE OR REPLACE VIEW v_execution_health_by_binding AS
+SELECT
+    e.binding_id                                                AS binding_id,
+    COUNT(e.execution_id)                                       AS total_executions,
+    COUNT(e.execution_id) FILTER (WHERE e.status = 'succeeded')  AS succeeded,
+    COUNT(e.execution_id) FILTER (WHERE e.status = 'failed')     AS failed,
+    ROUND(
+        (COUNT(e.execution_id) FILTER (WHERE e.status = 'succeeded'))::numeric
+        / NULLIF(COUNT(e.execution_id), 0),
+        4
+    )                                                            AS success_rate,
+    COALESCE(
+        ROUND(
+            (AVG(EXTRACT(EPOCH FROM (e.finished_at - e.started_at)))
+             FILTER (WHERE e.finished_at IS NOT NULL))::numeric,
+            3
+        ),
+        0
+    )                                                            AS avg_duration_seconds,
+    MAX(e.started_at)                                           AS last_execution_at,
+    (ARRAY_AGG(e.status ORDER BY e.started_at DESC, e.execution_id DESC))[1] AS last_status
+FROM policy_executions e
+WHERE e.binding_id IS NOT NULL
+GROUP BY e.binding_id;
 """
 
 

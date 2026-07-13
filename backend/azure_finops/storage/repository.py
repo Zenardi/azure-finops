@@ -1665,6 +1665,27 @@ def governance_posture(session: Session) -> dict[str, Any]:
     }
 
 
+def execution_health(session: Session) -> dict[str, Any]:
+    """Policy execution health (M9.2): the governance engine's own health.
+
+    Reads ``v_execution_health`` (per policy) and ``v_execution_health_by_binding``
+    (per binding) — succeeded/failed counts, success rate, average wall-clock
+    duration and last run — newest-executed first. A policy/binding that has never
+    executed is absent, so the empty state is two empty lists — never an error.
+    """
+    by_policy = _rows(
+        session,
+        "SELECT * FROM v_execution_health "
+        "ORDER BY last_execution_at DESC NULLS LAST, policy_name ASC",
+    )
+    by_binding = _rows(
+        session,
+        "SELECT * FROM v_execution_health_by_binding "
+        "ORDER BY last_execution_at DESC NULLS LAST, binding_id ASC",
+    )
+    return {"by_policy": by_policy, "by_binding": by_binding}
+
+
 def list_remediation_actions(
     session: Session, limit: int = 100, source: str | None = None
 ) -> list[dict[str, Any]]:

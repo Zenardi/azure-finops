@@ -726,6 +726,18 @@ def governance_posture() -> dict[str, Any]:
         return repo.governance_posture(session)
 
 
+@app.get("/api/governance/execution-health")
+def execution_health() -> dict[str, Any]:
+    """Policy execution health (M9.2): the governance engine's own health.
+
+    Returns ``{by_policy, by_binding}`` — succeeded/failed counts, success rate,
+    average wall-clock duration and last run, per policy and per binding. With
+    nothing executed yet both lists are empty — never an error.
+    """
+    with session_scope() as session:
+        return repo.execution_health(session)
+
+
 @app.post("/api/assets/query")
 def query_assets(body: AssetQuery) -> list[dict[str, Any]]:
     """Filter AssetDB via an allow-listed, injection-safe query (M4.2).
