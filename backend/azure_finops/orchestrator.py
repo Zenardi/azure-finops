@@ -138,6 +138,21 @@ def run_pipeline(
         # --- store ---
         with session_scope() as session:
             counts["resources"] = repo.upsert_resources(session, resources)
+            # AssetDB (M4.1): upsert the richer asset rows and record a 'created'
+            # event the first time each resource is seen.
+            new_asset_ids = repo.upsert_assets(session, resources)
+            by_id = {r.resource_id: r for r in resources}
+            for rid in new_asset_ids:
+                rec = by_id[rid]
+                repo.append_asset_event(
+                    session,
+                    resource_id=rid,
+                    subscription_id=rec.subscription_id,
+                    event_type="created",
+                    data=rec.config,
+                )
+            counts["assets"] = len(by_id)
+            counts["asset_events"] = len(new_asset_ids)
             counts["cost_rows"] = repo.upsert_cost_snapshots(session, cost_rows)
             counts["metric_samples"] = repo.insert_metric_samples(session, metric_samples)
             counts["rollups"] = repo.upsert_rollups(session, rollups)
