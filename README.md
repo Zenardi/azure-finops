@@ -72,7 +72,8 @@ OpenAI-compatible/local model). It runs fully offline with recorded fixtures
 | M10.2 | Cost governance pack — FinOps heuristics as c7n policies (idle VMs, orphan disks/IPs, oversized VMs, untagged) | ✅ done |
 | M10.3 | Security & tagging pack — public-IP exposure, permissive NSG, required tags, unencrypted disks (Security Baseline) | ✅ done |
 | M10.4 | CIS Azure compliance pack — CIS controls mapped to c7n policies; posture grouped by control id (CIS Azure) | ✅ done |
-| M11.1 | RBAC model — roles/permissions/role-bindings + a `require_permission` guard on mutating endpoints | 🚧 in review |
+| M11.1 | RBAC model — roles/permissions/role-bindings + a `require_permission` guard on mutating endpoints | ✅ done |
+| M11.2 | Teams & membership — team-scoped multi-tenancy: policies carry an owning team; members see/manage only their team's, admins see all | 🚧 in review |
 
 Both tracks run fully offline with recorded fixtures (`FINOPS_MOCK=1`) — no Azure
 subscription required to see the pipeline, policies and dashboards working.
@@ -360,6 +361,21 @@ auto-bound to `admin` at seed time so a fresh deployment can provision every oth
 binding. Manage it via `GET /api/authz/me` (your permissions), `GET /api/authz/roles`,
 and `GET`/`POST`/`DELETE /api/authz/role-bindings` (writes require `rbac:admin`).
 Identity is a plain header today; an SSO subject replaces it in M11.3.
+
+**Teams & multi-tenancy (M11.2).** Governance resources are scoped to an owning
+**team** (Stacklet-style tenancy). Two tables — `teams` and `team_members`
+(principal → team) — back a nullable `team_id` on `policies` (`ON DELETE SET NULL`,
+so deleting a team leaves its policies global rather than orphaned). When RBAC is
+enabled, creating a policy assigns the caller's team as owner (derived from
+membership, or an explicit `team` in the body that the caller must belong to);
+`GET /api/policies` returns **only the caller's team's policies** for a member and
+**all** for an admin (RBAC wildcard); and a non-admin reaching a policy in another
+team — read, update or delete — gets **403**. Removing a member from a team revokes
+their access to its resources. Team administration (`POST /api/teams`,
+`POST`/`DELETE /api/teams/{id}/members`) requires the admin-only `team:write`
+permission; `GET /api/teams` and `GET /api/teams/{id}/members` are readable. Scoping
+is gated by the same `RBAC_ENABLED` flag — with RBAC off, listings are unscoped and
+the API stays backward-compatible.
 
 **AssetDB (M4.1).** Every pipeline run also populates a queryable, near-real-time
 asset inventory (à la Stacklet's AssetDB). The `assets` table is a richer superset

@@ -74,6 +74,11 @@ class Policy(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     source: Mapped[str] = mapped_column(String(32), default="custom")
+    # The owning team (M11.2 multi-tenancy). NULL = unscoped/global (admin-only).
+    # ON DELETE SET NULL so deleting a team leaves its policies as global, not orphaned.
+    team_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("teams.id", ondelete="SET NULL"), index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -223,6 +228,45 @@ class RoleBinding(Base):
     role_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("roles.id", ondelete="CASCADE"), index=True
     )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Team(Base):
+    """A tenant/team that owns governance resources (M11.2 — multi-tenancy).
+
+    Members (:class:`TeamMember`) see and manage only their team's resources; an
+    admin (RBAC wildcard) sees across all teams. A scoped resource references its
+    owning team via a nullable ``team_id`` (e.g. :attr:`Policy.team_id`); ``NULL``
+    means unscoped/global (visible only to admins). Deleting a team cascades its
+    membership away and nulls the ``team_id`` on any resource it owned.
+    """
+
+    __tablename__ = "teams"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), unique=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TeamMember(Base):
+    """Assigns a principal to a team (M11.2) — the subject → team edge.
+
+    ``principal`` is the caller identity (the ``X-Principal`` header / an SSO subject
+    once M11.3 lands); ``role`` is a free-form label for the member's standing within
+    the team (``member`` by default). ``(team_id, principal)`` is unique so a principal
+    is added to a team at most once. Rows cascade-delete with the team.
+    """
+
+    __tablename__ = "team_members"
+    __table_args__ = (UniqueConstraint("team_id", "principal", name="uq_team_principal"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    team_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("teams.id", ondelete="CASCADE"), index=True
+    )
+    principal: Mapped[str] = mapped_column(String(256), index=True)
+    role: Mapped[str] = mapped_column(String(32), default="member")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

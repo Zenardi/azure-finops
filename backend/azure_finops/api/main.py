@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
 from .. import reporting
-from ..authz import rbac
+from ..authz import rbac, teams
 from ..config import get_settings
 from ..custodian import engine as custodian
 from ..custodian.engine import CustodianRunner
@@ -210,24 +210,32 @@ def _require_valid_spec(spec: dict[str, Any], runner: CustodianRunner | None) ->
 
 
 @app.get("/api/policies")
-def list_policies(enabled: bool | None = None) -> list[dict[str, Any]]:
-    """List policies, optionally filtered by ``?enabled=true``/``false``."""
+def list_policies(request: Request, enabled: bool | None = None) -> list[dict[str, Any]]:
+    """List policies, optionally filtered by ``?enabled=true``/``false``.
+
+    Team-scoped (M11.2) when RBAC is enabled: a member sees only their team's policies,
+    an admin sees all. With RBAC off the listing is unscoped (backward-compatible).
+    """
+    rbac_enabled = get_settings().rbac_enabled
+    principal = rbac.principal_from_request(request)
     with session_scope() as session:
-        if enabled is None:
-            policies = repo.list_policies(session)
-        elif enabled:
-            policies = repo.list_policies(session, enabled_only=True)
-        else:
-            policies = [p for p in repo.list_policies(session) if not p["enabled"]]
+        team_ids = teams.visible_team_ids(session, principal, rbac_enabled=rbac_enabled)
+        policies = repo.list_policies(session, enabled_only=enabled is True, team_ids=team_ids)
+    if enabled is False:
+        policies = [p for p in policies if not p["enabled"]]
     return [_policy_view(p) for p in policies]
 
 
 @app.get("/api/policies/{policy_id}")
-def get_policy(policy_id: int) -> dict[str, Any]:
+def get_policy(policy_id: int, request: Request) -> dict[str, Any]:
+    """Fetch one policy. ``403`` for a non-admin reaching across teams (M11.2)."""
+    rbac_enabled = get_settings().rbac_enabled
+    principal = rbac.principal_from_request(request)
     with session_scope() as session:
         policy = repo.get_policy(session, policy_id)
-    if policy is None:
-        raise HTTPException(status_code=404, detail="policy not found")
+        if policy is None:
+            raise HTTPException(status_code=404, detail="policy not found")
+        teams.ensure_policy_access(session, principal, policy, rbac_enabled=rbac_enabled)
     return _policy_view(policy)
 
 
@@ -238,12 +246,22 @@ def get_policy(policy_id: int) -> dict[str, Any]:
 )
 def create_policy(
     body: PolicyCreate,
+    request: Request,
     runner: Annotated[CustodianRunner | None, Depends(get_custodian_runner)] = None,
 ) -> dict[str, Any]:
-    """Validate the spec, then persist. ``422`` if invalid (no row), ``409`` on dup name."""
+    """Validate the spec, then persist. ``422`` if invalid (no row), ``409`` on dup name.
+
+    Assigns the owning team (M11.2) when RBAC is enabled: the caller's ``body.team`` if
+    given (must be admin/member — ``403``/``404``), else derived from their membership.
+    """
     _require_valid_spec(body.spec, runner)
+    rbac_enabled = get_settings().rbac_enabled
+    principal = rbac.principal_from_request(request)
     try:
         with session_scope() as session:
+            team_id = teams.resolve_owning_team(
+                session, principal, requested_team=body.team, rbac_enabled=rbac_enabled
+            )
             created = repo.create_policy(
                 session,
                 name=body.name,
@@ -251,6 +269,7 @@ def create_policy(
                 spec=body.spec,
                 description=body.description,
                 source=body.source,
+                team_id=team_id,
             )
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail="policy name already exists") from exc
@@ -263,13 +282,23 @@ def create_policy(
 def update_policy(
     policy_id: int,
     body: PolicyUpdate,
+    request: Request,
     runner: Annotated[CustodianRunner | None, Depends(get_custodian_runner)] = None,
 ) -> dict[str, Any]:
-    """Apply a partial update (re-validating ``spec`` when supplied). ``404``/``409``."""
+    """Apply a partial update (re-validating ``spec`` when supplied). ``404``/``409``.
+
+    A non-admin may only update policies owned by their team (``403`` cross-team, M11.2).
+    """
     if body.spec is not None:
         _require_valid_spec(body.spec, runner)
+    rbac_enabled = get_settings().rbac_enabled
+    principal = rbac.principal_from_request(request)
     try:
         with session_scope() as session:
+            existing = repo.get_policy(session, policy_id)
+            if existing is None:
+                raise HTTPException(status_code=404, detail="policy not found")
+            teams.ensure_policy_access(session, principal, existing, rbac_enabled=rbac_enabled)
             updated = repo.update_policy(
                 session,
                 policy_id,
@@ -280,19 +309,22 @@ def update_policy(
             )
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail="policy name already exists") from exc
-    if updated is None:
-        raise HTTPException(status_code=404, detail="policy not found")
     return _policy_view(updated)
 
 
 @app.delete(
     "/api/policies/{policy_id}", dependencies=[Depends(rbac.require_permission("policy:write"))]
 )
-def delete_policy(policy_id: int) -> dict[str, Any]:
+def delete_policy(policy_id: int, request: Request) -> dict[str, Any]:
+    """Delete a policy. A non-admin may only delete their team's policies (``403``, M11.2)."""
+    rbac_enabled = get_settings().rbac_enabled
+    principal = rbac.principal_from_request(request)
     with session_scope() as session:
-        ok = repo.delete_policy(session, policy_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="policy not found")
+        existing = repo.get_policy(session, policy_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="policy not found")
+        teams.ensure_policy_access(session, principal, existing, rbac_enabled=rbac_enabled)
+        repo.delete_policy(session, policy_id)
     return {"id": policy_id, "deleted": True}
 
 
@@ -582,6 +614,84 @@ def delete_role_binding(principal: str, role: str) -> dict[str, Any]:
     if not ok:
         raise HTTPException(status_code=404, detail="role binding not found")
     return {"principal": principal, "role": role, "deleted": True}
+
+
+# --------------------------------------------------------------------------- #
+# Teams & membership (M11.2) — multi-tenancy scoping of governance resources
+# --------------------------------------------------------------------------- #
+class TeamCreate(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class TeamMemberIn(BaseModel):
+    principal: str
+    role: str = "member"
+
+
+@app.get("/api/teams")
+def list_teams() -> list[dict[str, Any]]:
+    """List all teams (ungated read)."""
+    with session_scope() as session:
+        return repo.list_teams(session)
+
+
+@app.get("/api/teams/{team_id}")
+def get_team(team_id: int) -> dict[str, Any]:
+    with session_scope() as session:
+        team = repo.get_team(session, team_id)
+    if team is None:
+        raise HTTPException(status_code=404, detail="team not found")
+    return team
+
+
+@app.post(
+    "/api/teams",
+    status_code=201,
+    dependencies=[Depends(rbac.require_permission("team:write"))],
+)
+def create_team(body: TeamCreate) -> dict[str, Any]:
+    """Create a team (admin only). ``409`` on a duplicate name."""
+    try:
+        with session_scope() as session:
+            return repo.create_team(session, name=body.name, description=body.description)
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="team name already exists") from exc
+
+
+@app.get("/api/teams/{team_id}/members")
+def list_team_members(team_id: int) -> list[dict[str, Any]]:
+    with session_scope() as session:
+        return repo.list_team_members(session, team_id)
+
+
+@app.post(
+    "/api/teams/{team_id}/members",
+    status_code=201,
+    dependencies=[Depends(rbac.require_permission("team:write"))],
+)
+def add_team_member(team_id: int, body: TeamMemberIn) -> dict[str, Any]:
+    """Add a principal to a team (admin only, idempotent). ``404`` for an unknown team."""
+    with session_scope() as session:
+        result = repo.add_team_member(
+            session, team_id=team_id, principal=body.principal, role=body.role
+        )
+    if result is None:
+        raise HTTPException(status_code=404, detail="team not found")
+    return result
+
+
+@app.delete(
+    "/api/teams/{team_id}/members/{principal}",
+    dependencies=[Depends(rbac.require_permission("team:write"))],
+)
+def remove_team_member(team_id: int, principal: str) -> dict[str, Any]:
+    """Remove a principal from a team (admin only). ``404`` if the membership is absent."""
+    with session_scope() as session:
+        ok = repo.remove_team_member(session, team_id, principal)
+    if not ok:
+        raise HTTPException(status_code=404, detail="team membership not found")
+    return {"team_id": team_id, "principal": principal, "removed": True}
 
 
 # --------------------------------------------------------------------------- #

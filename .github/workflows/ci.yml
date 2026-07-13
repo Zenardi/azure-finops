@@ -938,6 +938,58 @@ jobs:
           print("rbac-on guard OK: anon=401 viewer_write=403 viewer_read=200 admin_write=201")
           PY
 
+      - name: Smoke-test team-scoped multi-tenancy (M11.2)
+        run: |
+          set -euo pipefail
+          # In the deployed image against the real DB, with RBAC ON (in-process
+          # TestClient in an exec'd subprocess so the live server is untouched):
+          # a member's create assigns their team as owner; listing is team-scoped
+          # (member sees only their team, admin sees all); a non-admin reaching
+          # another team is 403; and removing a member revokes their access.
+          docker compose exec -T -e RBAC_ENABLED=1 backend python - <<'PY'
+          from fastapi.testclient import TestClient
+          from azure_finops.api.main import app
+          from azure_finops.authz import rbac
+          from azure_finops.storage import repository as repo
+          from azure_finops.storage.db import session_scope
+
+          with session_scope() as s:
+              rbac.seed_default_roles(s, bootstrap_admin="ci-team-admin")
+              repo.assign_role(s, principal="ci-alice", role_name="editor")
+              repo.assign_role(s, principal="ci-bob", role_name="editor")
+              alpha = repo.create_team(s, name="ci-alpha")["id"]
+              beta = repo.create_team(s, name="ci-beta")["id"]
+              repo.add_team_member(s, team_id=alpha, principal="ci-alice")
+              repo.add_team_member(s, team_id=beta, principal="ci-bob")
+
+          c = TestClient(app)
+
+          def mk(name, who):
+              body = {"name": name, "resource_type": "azure.vm",
+                      "spec": {"policies": [{"name": name, "resource": "azure.vm"}]}}
+              return c.post("/api/policies", json=body, headers={"X-Principal": who})
+
+          a = mk("ci-alpha-p", "ci-alice")
+          b = mk("ci-beta-p", "ci-bob")
+          assert a.status_code == 201 and a.json()["team_id"] == alpha, a.json()
+          assert b.status_code == 201 and b.json()["team_id"] == beta, b.json()
+
+          alice_names = {p["name"] for p in c.get("/api/policies", headers={"X-Principal": "ci-alice"}).json()}
+          admin_names = {p["name"] for p in c.get("/api/policies", headers={"X-Principal": "ci-team-admin"}).json()}
+          assert "ci-alpha-p" in alice_names and "ci-beta-p" not in alice_names, alice_names
+          assert {"ci-alpha-p", "ci-beta-p"} <= admin_names, admin_names
+
+          cross = c.get(f"/api/policies/{b.json()['id']}", headers={"X-Principal": "ci-alice"})
+          assert cross.status_code == 403, cross.status_code
+
+          removed = c.request("DELETE", f"/api/teams/{beta}/members/ci-bob",
+                              headers={"X-Principal": "ci-team-admin"})
+          assert removed.status_code == 200, removed.status_code
+          bob_names = {p["name"] for p in c.get("/api/policies", headers={"X-Principal": "ci-bob"}).json()}
+          assert "ci-beta-p" not in bob_names, bob_names
+          print("team-scope OK: create-owns=team list=scoped cross-team=403 remove-member=revoked")
+          PY
+
       - name: Assert UI routes render (assets M4.5 + account groups M5.1 + bindings M5.4 + events M6.4, mock mode)
         run: |
           set -euo pipefail
