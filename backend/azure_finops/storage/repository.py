@@ -919,6 +919,18 @@ def list_runs(session: Session, limit: int = 20) -> list[dict[str, Any]]:
     return _rows(session, "SELECT * FROM runs ORDER BY started_at DESC LIMIT :limit", limit=limit)
 
 
+def policy_health(session: Session) -> list[dict[str, Any]]:
+    """Per-policy compliance & health (M3.4), newest-executed first.
+
+    Reads ``v_policy_health`` — one aggregate row per policy that has executed at
+    least once (a never-run policy is absent), across every subscription it ran in.
+    """
+    return _rows(
+        session,
+        "SELECT * FROM v_policy_health ORDER BY last_execution_at DESC NULLS LAST, policy_name ASC",
+    )
+
+
 def list_remediation_actions(session: Session, limit: int = 100) -> list[dict[str, Any]]:
     return _rows(
         session,

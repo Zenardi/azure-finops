@@ -86,6 +86,45 @@ CREATE OR REPLACE VIEW v_savings_by_category AS
 SELECT category, SUM(est_monthly_savings) AS est_monthly_savings, currency
 FROM v_latest_recommendations
 GROUP BY category, currency;
+
+-- Per-policy compliance & health (M3.4): aggregate every policy's executions
+-- across ALL subscriptions into matched counts, last status and a success rate.
+-- INNER JOIN → a policy that has never executed is absent (empty state = no rows).
+CREATE OR REPLACE VIEW v_policy_health AS
+SELECT
+    p.id                                                              AS policy_id,
+    p.name                                                            AS policy_name,
+    p.resource_type                                                   AS resource_type,
+    COUNT(e.execution_id)                                            AS total_executions,
+    COUNT(e.execution_id) FILTER (WHERE e.status = 'succeeded')       AS succeeded_executions,
+    COUNT(e.execution_id) FILTER (WHERE e.status = 'failed')          AS failed_executions,
+    COALESCE(SUM(e.resources_matched), 0)                            AS total_matches,
+    COUNT(DISTINCT e.subscription_id)                                AS subscriptions,
+    ROUND(
+        (COUNT(e.execution_id) FILTER (WHERE e.status = 'succeeded'))::numeric
+        / NULLIF(COUNT(e.execution_id), 0),
+        4
+    )                                                                 AS success_rate,
+    MAX(e.started_at)                                                AS last_execution_at,
+    (ARRAY_AGG(e.status ORDER BY e.started_at DESC, e.execution_id DESC))[1] AS last_status
+FROM policies p
+JOIN policy_executions e ON e.policy_id = p.id
+GROUP BY p.id, p.name, p.resource_type;
+
+-- Finer grain for the "across subscriptions" Grafana panel: one row per
+-- (policy, subscription).
+CREATE OR REPLACE VIEW v_policy_compliance AS
+SELECT
+    p.id                                                        AS policy_id,
+    p.name                                                      AS policy_name,
+    e.subscription_id                                          AS subscription_id,
+    COUNT(e.execution_id)                                      AS total_executions,
+    COUNT(e.execution_id) FILTER (WHERE e.status = 'succeeded') AS succeeded_executions,
+    COALESCE(SUM(e.resources_matched), 0)                      AS total_matches,
+    MAX(e.started_at)                                          AS last_execution_at
+FROM policies p
+JOIN policy_executions e ON e.policy_id = p.id
+GROUP BY p.id, p.name, e.subscription_id;
 """
 
 
