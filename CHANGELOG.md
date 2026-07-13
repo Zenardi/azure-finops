@@ -6,6 +6,20 @@ All notable changes to this project are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **Teams & membership — team-scoped multi-tenancy (M11.2).** New `teams` and
+  `team_members` tables and an `azure_finops.authz.teams` module scope governance
+  resources to an owning team. Policies gain a nullable `team_id`
+  (`ON DELETE SET NULL`); when RBAC is enabled, creating a policy assigns the caller's
+  team as owner (derived from membership, or an explicit `team` name the caller must
+  belong to). `GET /api/policies` returns only the caller's team's policies for a
+  member and all for an admin (RBAC wildcard); a non-admin that reads, updates or
+  deletes a policy in another team gets **403**, and removing a member revokes their
+  access. Team administration — `POST /api/teams`, `POST`/`DELETE /api/teams/{id}/members`
+  — requires the admin-only `team:write` permission; `GET /api/teams`,
+  `GET /api/teams/{id}` and `GET /api/teams/{id}/members` are readable. Scoping is
+  gated by the same **`RBAC_ENABLED`** flag, so with RBAC off listings are unscoped and
+  the API stays backward-compatible. The scoping core (`is_admin` / `visible_team_ids`
+  / `ensure_policy_access` / `resolve_owning_team`) is unit-tested in isolation.
 - **RBAC — roles, permissions & role bindings with endpoint enforcement (M11.1).**
   New `roles` / `permissions` / `role_bindings` tables and an `azure_finops.authz.rbac`
   module. A `require_permission(action)` FastAPI dependency guards every mutating

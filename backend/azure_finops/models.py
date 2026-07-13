@@ -133,6 +133,9 @@ class PolicyCreate(BaseModel):
     spec: dict = Field(default_factory=dict)
     description: str | None = None
     source: str = "custom"  # custom | library | imported
+    # Optional owning team (M11.2). When omitted the team is derived from the caller's
+    # membership; when set, the caller must be an admin or a member of that team.
+    team: str | None = None
 
 
 class PolicyUpdate(BaseModel):

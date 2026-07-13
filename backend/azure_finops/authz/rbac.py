@@ -51,8 +51,9 @@ WRITE_PERMISSIONS: tuple[str, ...] = (
     "recommendation:decide",
 )
 
-# Administrative permissions (managing RBAC itself) — admin only.
-ADMIN_PERMISSIONS: tuple[str, ...] = ("rbac:admin",)
+# Administrative permissions (managing RBAC itself, and teams — M11.2) — admin only.
+# Not granted to ``editor``; only the ``admin`` wildcard satisfies them.
+ADMIN_PERMISSIONS: tuple[str, ...] = ("rbac:admin", "team:write")
 
 DEFAULT_ROLES: dict[str, dict] = {
     "admin": {

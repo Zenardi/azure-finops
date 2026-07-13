@@ -327,6 +327,7 @@ def _policy_public(rec: schema.Policy) -> dict[str, Any]:
         "enabled": rec.enabled,
         "version": rec.version,
         "source": rec.source,
+        "team_id": rec.team_id,
         "created_at": rec.created_at.isoformat() if rec.created_at else None,
         "updated_at": rec.updated_at.isoformat() if rec.updated_at else None,
     }
@@ -378,12 +379,14 @@ def create_policy(
     spec: dict[str, Any],
     description: str | None = None,
     source: str = "custom",
+    team_id: int | None = None,
     actor: str | None = None,
 ) -> dict[str, Any]:
     """Persist a new policy (enabled, version 1). Raises on a duplicate ``name``.
 
     Seeds the version history with a version-1 snapshot so the created state is
-    always the first entry in the audit trail.
+    always the first entry in the audit trail. ``team_id`` scopes the policy to an
+    owning team (M11.2); ``None`` leaves it unscoped/global.
     """
     rec = schema.Policy(
         name=name,
@@ -391,6 +394,7 @@ def create_policy(
         spec=spec,
         description=description,
         source=source,
+        team_id=team_id,
     )
     session.add(rec)
     session.flush()
@@ -409,10 +413,22 @@ def get_policy_by_name(session: Session, name: str) -> dict[str, Any] | None:
     return _policy_public(rec) if rec is not None else None
 
 
-def list_policies(session: Session, enabled_only: bool = False) -> list[dict[str, Any]]:
+def list_policies(
+    session: Session,
+    enabled_only: bool = False,
+    team_ids: list[int] | None = None,
+) -> list[dict[str, Any]]:
+    """List policies, optionally filtered to ``enabled`` and/or a set of owning teams.
+
+    ``team_ids=None`` applies no team filter (all policies — the unscoped default);
+    ``team_ids=[...]`` restricts to policies owned by those teams (M11.2 scoping);
+    ``team_ids=[]`` matches nothing (a member of no team sees no scoped policies).
+    """
     query = session.query(schema.Policy)
     if enabled_only:
         query = query.filter(schema.Policy.enabled.is_(True))
+    if team_ids is not None:
+        query = query.filter(schema.Policy.team_id.in_(team_ids))
     recs = query.order_by(schema.Policy.name.asc()).all()
     return [_policy_public(r) for r in recs]
 
@@ -869,6 +885,112 @@ def resolve_permissions(session: Session, principal: str) -> set[str]:
         .all()
     )
     return {r[0] for r in rows}
+
+
+# --------------------------------------------------------------------------- #
+# Teams & membership (M11.2) — multi-tenancy scoping of governance resources
+# --------------------------------------------------------------------------- #
+def _team_public(rec: schema.Team) -> dict[str, Any]:
+    return {
+        "id": rec.id,
+        "name": rec.name,
+        "description": rec.description,
+        "created_at": rec.created_at.isoformat() if rec.created_at else None,
+    }
+
+
+def get_team_by_name(session: Session, name: str) -> schema.Team | None:
+    return session.query(schema.Team).filter(schema.Team.name == name).one_or_none()
+
+
+def create_team(session: Session, *, name: str, description: str | None = None) -> dict[str, Any]:
+    """Persist a new team. Raises ``IntegrityError`` on a duplicate ``name``."""
+    rec = schema.Team(name=name, description=description)
+    session.add(rec)
+    session.flush()
+    return _team_public(rec)
+
+
+def get_team(session: Session, team_id: int) -> dict[str, Any] | None:
+    rec = session.get(schema.Team, team_id)
+    return _team_public(rec) if rec is not None else None
+
+
+def list_teams(session: Session) -> list[dict[str, Any]]:
+    recs = session.query(schema.Team).order_by(schema.Team.name.asc()).all()
+    return [_team_public(r) for r in recs]
+
+
+def add_team_member(
+    session: Session, *, team_id: int, principal: str, role: str = "member"
+) -> dict[str, Any] | None:
+    """Add ``principal`` to a team (idempotent). ``None`` if the team is unknown.
+
+    A re-add is a no-op — the existing membership (and its ``role``) is preserved,
+    so the ``(team_id, principal)`` uniqueness is never violated.
+    """
+    if session.get(schema.Team, team_id) is None:
+        return None
+    existing = (
+        session.query(schema.TeamMember)
+        .filter(
+            schema.TeamMember.team_id == team_id,
+            schema.TeamMember.principal == principal,
+        )
+        .one_or_none()
+    )
+    if existing is None:
+        session.add(schema.TeamMember(team_id=team_id, principal=principal, role=role))
+        session.flush()
+        return {"principal": principal, "role": role}
+    return {"principal": existing.principal, "role": existing.role}
+
+
+def remove_team_member(session: Session, team_id: int, principal: str) -> bool:
+    """Remove a principal from a team. ``False`` if no such membership existed."""
+    deleted = (
+        session.query(schema.TeamMember)
+        .filter(
+            schema.TeamMember.team_id == team_id,
+            schema.TeamMember.principal == principal,
+        )
+        .delete()
+    )
+    session.flush()
+    return bool(deleted)
+
+
+def list_team_members(session: Session, team_id: int) -> list[dict[str, Any]]:
+    rows = (
+        session.query(schema.TeamMember.principal, schema.TeamMember.role)
+        .filter(schema.TeamMember.team_id == team_id)
+        .order_by(schema.TeamMember.principal.asc())
+        .all()
+    )
+    return [{"principal": p, "role": r} for p, r in rows]
+
+
+def list_teams_for_principal(session: Session, principal: str) -> list[int]:
+    """The ids of every team a principal belongs to (empty when they belong to none)."""
+    rows = (
+        session.query(schema.TeamMember.team_id)
+        .filter(schema.TeamMember.principal == principal)
+        .order_by(schema.TeamMember.team_id.asc())
+        .all()
+    )
+    return [r[0] for r in rows]
+
+
+def is_team_member(session: Session, team_id: int, principal: str) -> bool:
+    return (
+        session.query(schema.TeamMember.id)
+        .filter(
+            schema.TeamMember.team_id == team_id,
+            schema.TeamMember.principal == principal,
+        )
+        .first()
+        is not None
+    )
 
 
 # --------------------------------------------------------------------------- #
