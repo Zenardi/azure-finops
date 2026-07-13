@@ -554,6 +554,58 @@ jobs:
           print("posture rollup OK:", json.dumps(by_pol["posture-bad"]))
           PY
 
+      - name: Smoke-test policy execution health end to end (M9.2)
+        run: |
+          set -euo pipefail
+          # Same shared DB as the earlier smoke steps — assert on UNIQUELY-NAMED rows
+          # (exechealth-*) so the check is order-independent (the zeroed empty state is
+          # covered by the unit tests against a truncated DB). Seed executions with
+          # explicit timestamps for deterministic durations: 2 succeeded + 1 failed for a
+          # policy (two of them binding-triggered), then assert success rate, failure
+          # count and avg duration per policy AND per binding. Fully mock-safe.
+          docker compose exec -T backend python - <<'PY'
+          import json, urllib.request
+          from datetime import UTC, datetime, timedelta
+          from azure_finops.storage import repository as repo
+          from azure_finops.storage import schema
+          from azure_finops.storage.db import session_scope
+
+          base = datetime(2026, 1, 1, tzinfo=UTC)
+
+          def seed(s, *, eid, pid, status, binding_id, off, dur):
+              started = base + timedelta(minutes=off)
+              s.add(schema.PolicyExecution(
+                  execution_id=eid, policy_id=pid, subscription_id="exechealth-sub",
+                  binding_id=binding_id, status=status, started_at=started,
+                  finished_at=started + timedelta(seconds=dur), resources_matched=0))
+              s.flush()
+
+          with session_scope() as s:
+              pid = repo.create_policy(
+                  s, name="exechealth-p", resource_type="azure.vm",
+                  spec={"policies": [{"name": "exechealth-p", "resource": "azure.vm"}]})["id"]
+              cid = repo.create_collection(s, name="exechealth-coll")["id"]
+              gid = repo.create_account_group(s, name="exechealth-grp")["id"]
+              bid = repo.create_binding(s, collection_id=cid, account_group_id=gid)["id"]
+              seed(s, eid="exechealth-e1", pid=pid, status="succeeded", binding_id=bid, off=0, dur=10)
+              seed(s, eid="exechealth-e2", pid=pid, status="failed", binding_id=bid, off=1, dur=20)
+              seed(s, eid="exechealth-e3", pid=pid, status="succeeded", binding_id=None, off=2, dur=30)
+
+          with urllib.request.urlopen("http://localhost:8000/api/governance/execution-health") as r:
+              body = json.load(r)
+          row = {r["policy_name"]: r for r in body["by_policy"]}["exechealth-p"]
+          assert row["total_executions"] == 3, row
+          assert row["succeeded"] == 2 and row["failed"] == 1, row
+          assert row["success_rate"] == 0.6667, row
+          assert row["avg_duration_seconds"] == 20.0, row
+          # per-binding grain excludes the pull-mode (no-binding) run.
+          brow = {r["binding_id"]: r for r in body["by_binding"]}[bid]
+          assert brow["total_executions"] == 2 and brow["succeeded"] == 1 and brow["failed"] == 1, brow
+          assert brow["success_rate"] == 0.5, brow
+          assert brow["avg_duration_seconds"] == 15.0, brow
+          print("execution-health rollup OK:", json.dumps(row))
+          PY
+
       - name: Assert UI routes render (assets M4.5 + account groups M5.1 + bindings M5.4 + events M6.4, mock mode)
         run: |
           set -euo pipefail

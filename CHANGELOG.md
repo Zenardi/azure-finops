@@ -55,6 +55,20 @@ All notable changes to this project are documented here. Format loosely follows
     via `--ignore-unfixed` while still failing on anything actionable.
 
 ### Added
+- **M9.2 — Policy execution health dashboard.** The governance engine's *own*
+  health. New `v_execution_health` (per policy) and `v_execution_health_by_binding`
+  (per binding) SQL views (`storage/db.py`) aggregate executions into
+  succeeded/failed counts, a rounded `success_rate`, the average wall-clock
+  `avg_duration_seconds` (over finished runs — `EXTRACT(EPOCH …)` cast to numeric
+  before `ROUND`), and `last_status` / `last_execution_at`. New repository helper
+  `execution_health()` (`storage/repository.py`) returns `{by_policy, by_binding}`,
+  newest-executed first (pull-mode runs with no binding are counted per-policy but
+  excluded from the per-binding grain). New endpoint
+  `GET /api/governance/execution-health` (`api/main.py`) is a thin read — both lists
+  empty until a policy has executed, never an error. New provisioned **Policy
+  Execution Health** Grafana dashboard (`grafana/dashboards/execution-health.json`):
+  success-rate / executions / failed / avg-duration stats, success-rate-by-policy
+  bar gauge, duration-over-time trend, and per-policy / per-binding health tables.
 - **M9.1 — Compliance posture dashboard.** The governance console's headline view.
   New `v_governance_posture` SQL view (`storage/db.py`) takes the **latest execution
   per (policy, subscription)** — ordered `started_at DESC, execution_id DESC`, mirroring

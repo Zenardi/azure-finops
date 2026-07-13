@@ -64,7 +64,8 @@ OpenAI-compatible/local model). It runs fully offline with recorded fixtures
 | M8.2 | Slack & email transports — webhook / SMTP delivery via injected clients, failures captured | ✅ done |
 | M8.3 | Teams, Jira & ServiceNow transports — ITSM integrations (webhook / create issue / create incident) | ✅ done |
 | M8.4 | Per-binding notify config & UI — attach channel+template to a binding; fire on violation; `/notifications` page | ✅ done |
-| M9.1 | Compliance posture dashboard — compliant/non-compliant counts by policy/subscription/collection (API + Grafana) | 🚧 in review |
+| M9.1 | Compliance posture dashboard — compliant/non-compliant counts by policy/subscription/collection (API + Grafana) | ✅ done |
+| M9.2 | Policy execution health dashboard — success/failure rate, avg duration & last-run per policy/binding (API + Grafana) | 🚧 in review |
 
 Both tracks run fully offline with recorded fixtures (`FINOPS_MOCK=1`) — no Azure
 subscription required to see the pipeline, policies and dashboards working.
@@ -250,6 +251,17 @@ nothing executed yet the totals are zeroed and the group lists empty — the emp
 state is data, never an error. A provisioned **Compliance Posture** Grafana
 dashboard visualises the split, the compliance rate, violations over time, and
 per-policy / per-subscription posture tables.
+
+**Execution health (M9.2).** The governance *engine's own* health — so operators
+can see whether policy runs are succeeding, and how long they take. The
+`v_execution_health` / `v_execution_health_by_binding` SQL views aggregate every
+execution into succeeded/failed counts, a rounded `success_rate`, the average
+wall-clock `avg_duration_seconds` (over finished runs), and the `last_status` /
+`last_execution_at`. `GET /api/governance/execution-health` returns
+`{by_policy, by_binding}` (pull-mode runs with no binding are still counted
+per-policy but excluded from the per-binding grain); both lists are empty until a
+policy has executed — never an error. A provisioned **Policy Execution Health**
+Grafana dashboard trends success rate, duration and failures per policy / binding.
 
 **AssetDB (M4.1).** Every pipeline run also populates a queryable, near-real-time
 asset inventory (à la Stacklet's AssetDB). The `assets` table is a richer superset
