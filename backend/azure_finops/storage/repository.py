@@ -737,6 +737,97 @@ def remove_subscription_from_group(
 
 
 # --------------------------------------------------------------------------- #
+# Bindings (M5.2) — link a policy collection to an account group + exec config
+# --------------------------------------------------------------------------- #
+_BINDING_MODES = {"pull", "event"}
+
+
+def _binding_public(rec: schema.Binding) -> dict[str, Any]:
+    return {
+        "id": rec.id,
+        "collection_id": rec.collection_id,
+        "account_group_id": rec.account_group_id,
+        "schedule": rec.schedule,
+        "mode": rec.mode,
+        "dry_run": rec.dry_run,
+        "enabled": rec.enabled,
+        "created_at": rec.created_at.isoformat() if rec.created_at else None,
+        "updated_at": rec.updated_at.isoformat() if rec.updated_at else None,
+    }
+
+
+def _validate_mode(mode: str) -> None:
+    if mode not in _BINDING_MODES:
+        raise ValueError(f"mode must be one of {sorted(_BINDING_MODES)}")
+
+
+def create_binding(
+    session: Session,
+    *,
+    collection_id: int,
+    account_group_id: int,
+    schedule: str | None = None,
+    mode: str = "pull",
+    dry_run: bool = True,
+    enabled: bool = True,
+) -> dict[str, Any] | None:
+    """Create a binding. Raises ``ValueError`` for a bad ``mode``; returns ``None`` if
+    the referenced collection or account group does not exist."""
+    _validate_mode(mode)
+    if session.get(schema.PolicyCollection, collection_id) is None:
+        return None
+    if session.get(schema.AccountGroup, account_group_id) is None:
+        return None
+    rec = schema.Binding(
+        collection_id=collection_id,
+        account_group_id=account_group_id,
+        schedule=schedule,
+        mode=mode,
+        dry_run=dry_run,
+        enabled=enabled,
+    )
+    session.add(rec)
+    session.flush()
+    return _binding_public(rec)
+
+
+def get_binding(session: Session, binding_id: int) -> dict[str, Any] | None:
+    rec = session.get(schema.Binding, binding_id)
+    return _binding_public(rec) if rec is not None else None
+
+
+def list_bindings(session: Session) -> list[dict[str, Any]]:
+    recs = session.query(schema.Binding).order_by(schema.Binding.id.asc()).all()
+    return [_binding_public(r) for r in recs]
+
+
+def update_binding(
+    session: Session, binding_id: int, changes: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Partial update (only the given fields). Raises ``ValueError`` for a bad ``mode``;
+    returns ``None`` if the binding does not exist."""
+    if "mode" in changes:
+        _validate_mode(changes["mode"])
+    rec = session.get(schema.Binding, binding_id)
+    if rec is None:
+        return None
+    for field in ("schedule", "mode", "dry_run", "enabled"):
+        if field in changes:
+            setattr(rec, field, changes[field])
+    session.flush()
+    return _binding_public(rec)
+
+
+def delete_binding(session: Session, binding_id: int) -> bool:
+    rec = session.get(schema.Binding, binding_id)
+    if rec is None:
+        return False
+    session.delete(rec)
+    session.flush()
+    return True
+
+
+# --------------------------------------------------------------------------- #
 # Inventory + cost
 # --------------------------------------------------------------------------- #
 def upsert_resources(session: Session, resources: list[m.ResourceRecord]) -> int:

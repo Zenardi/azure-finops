@@ -48,7 +48,8 @@ OpenAI-compatible/local model). It runs fully offline with recorded fixtures
 | M4.3 | AssetDB — asset relationships graph (disk→vm, nic→vm, ip→nic) | ✅ done |
 | M4.4 | AssetDB — asset change history & event metadata (Activity Log) | ✅ done |
 | M4.5 | AssetDB — asset explorer & detail UI (query, config, graph, history) | ✅ done |
-| M5.1 | Account groups — organize subscriptions into named, many-to-many groups | 🚧 in review |
+| M5.1 | Account groups — organize subscriptions into named, many-to-many groups | ✅ done |
+| M5.2 | Bindings — link a policy collection to an account group with exec config | 🚧 in review |
 
 Both tracks run fully offline with recorded fixtures (`FINOPS_MOCK=1`) — no Azure
 subscription required to see the pipeline, policies and dashboards working.
@@ -282,6 +283,16 @@ only the membership rows go. Managed via `GET/POST/DELETE /api/account-groups[/{
 and `POST/DELETE /api/account-groups/{id}/subscriptions/{subscription_id}` (adding an
 unknown subscription or group returns `404`), with an **`/account-groups`** UI to create
 groups and manage membership. Reuses the existing `subscriptions` records.
+
+**Bindings (M5.2).** A **binding** is Stacklet's core operational unit: it links a
+**policy collection** (M2.3) to an **account group** (M5.1) with execution config —
+`schedule` (cron), `mode` (`pull`|`event`), `dry_run` and `enabled`. This is what
+operationalizes governance at scale: *which policies run against which accounts, how,
+and when.* Managed via `GET/POST/PUT/DELETE /api/bindings[/{id}]`. Creating a binding
+requires an **existing** collection and account group (else `404`), `mode` is validated
+to `pull`/`event` (else `400`), and bindings default to **`dry_run=true`** / `enabled=true`.
+The `bindings` table's FKs are `ON DELETE CASCADE`, so deleting a collection or group
+drops its bindings automatically.
 
 Two API endpoints expose the engine's offline surface (M1.3):
 
