@@ -46,7 +46,8 @@ OpenAI-compatible/local model). It runs fully offline with recorded fixtures
 | M4.1 | AssetDB — asset inventory with full config (schema + ingestion) | ✅ done |
 | M4.2 | AssetDB — filterable, injection-safe asset query API | ✅ done |
 | M4.3 | AssetDB — asset relationships graph (disk→vm, nic→vm, ip→nic) | ✅ done |
-| M4.4 | AssetDB — asset change history & event metadata (Activity Log) | 🚧 in review |
+| M4.4 | AssetDB — asset change history & event metadata (Activity Log) | ✅ done |
+| M4.5 | AssetDB — asset explorer & detail UI (query, config, graph, history) | 🚧 in review |
 
 Both tracks run fully offline with recorded fixtures (`FINOPS_MOCK=1`) — no Azure
 subscription required to see the pipeline, policies and dashboards working.
@@ -262,6 +263,14 @@ record (missing any of those) is **skipped, never fatal**. `repo.record_activity
 persists each as an `activity` event whose row time is the *real* event timestamp, so
 `GET /api/assets/{id}/history` returns the combined lifecycle + activity timeline
 **newest-first**; an unknown asset yields an empty list (`200`), not an error.
+
+**Asset explorer UI (M4.5).** The Next.js **`/assets`** console ties the AssetDB
+together (the Stacklet AssetDB experience): a query form (type / location / id-contains
+/ tag) drives the injection-safe M4.2 query API with **pagination**, and clicking a row
+opens **`/assets/<resource-id>`** — a catch-all route (Azure ids contain slashes) that
+composes the three APIs into one view: the asset's **config** (JSON), its
+**relationships** (M4.3, with links to each neighbour), and its **change-history**
+timeline (M4.4). An unknown id shows a friendly **not-found** state, never a crash.
 
 Two API endpoints expose the engine's offline surface (M1.3):
 

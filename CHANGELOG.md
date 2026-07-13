@@ -47,6 +47,17 @@ All notable changes to this project are documented here. Format loosely follows
     via `--ignore-unfixed` while still failing on anything actionable.
 
 ### Added
+- **M4.5 — Asset explorer & detail UI.** A Next.js **Asset Explorer** (the Stacklet
+  AssetDB console) at **`/assets`**: a query form (type / location / id-contains / tag)
+  drives the injection-safe M4.2 query API with **pagination**, and each row links to
+  **`/assets/<resource-id>`** — a **catch-all** route (Azure resource ids contain
+  slashes) that composes the asset's **config** (M4.2), **relationships** (M4.3, each
+  neighbour linked) and **change-history** timeline (M4.4) into a single detail view.
+  An unknown id renders a friendly **not-found** state, never a crash. Adds
+  `frontend/app/assets/page.tsx`, `frontend/app/assets/[...id]/page.tsx`, an **Assets**
+  nav link, and typed `lib/api.ts` helpers (`buildAssetQuery`, `queryAssets`, `getAsset`,
+  `getAssetRelationships`, `getAssetHistory`). The CI `e2e` job now also boots the
+  frontend and asserts the explorer + a detail route return `200` in mock mode.
 - **M4.4 — Asset change history & event metadata.** AssetDB gains an **audit
   timeline** — the *who / how / when* of every asset change — by ingesting the Azure
   **Activity Log** into `asset_events`. New mockable collector

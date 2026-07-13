@@ -173,3 +173,99 @@ export function shortId(resourceId: string): string {
   const parts = (resourceId || "").split("/");
   return parts[parts.length - 1] || resourceId;
 }
+
+// --- AssetDB explorer (M4.5) — consumes the M4.2/M4.3/M4.4 APIs ------------- //
+
+export interface Asset {
+  resource_id: string;
+  subscription_id?: string | null;
+  resource_group?: string | null;
+  name?: string | null;
+  type?: string | null;
+  location?: string | null;
+  sku?: string | null;
+  tags: Record<string, string>;
+  config: Record<string, any>;
+  state?: string | null;
+  first_seen?: string | null;
+  last_seen?: string | null;
+}
+
+export interface AssetFilter {
+  column: string;
+  op?: "eq" | "ne" | "contains" | "in";
+  value: any;
+}
+
+export interface AssetQuery {
+  filters?: AssetFilter[];
+  tags?: Record<string, string>;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AssetRelationship {
+  id: number;
+  source_id: string;
+  target_id: string;
+  kind: string;
+  direction: "inbound" | "outbound";
+  neighbor: string;
+  created_at?: string | null;
+}
+
+export interface AssetEvent {
+  id: number;
+  resource_id: string;
+  subscription_id?: string | null;
+  event_type: string;
+  data: Record<string, any>;
+  at?: string | null;
+}
+
+export interface AssetQueryInputs {
+  type?: string;
+  location?: string;
+  contains?: string;
+  tagKey?: string;
+  tagValue?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Build an injection-safe {@link AssetQuery} from explorer form fields. Empty
+ * fields are omitted; a tag pair contributes only when both key and value are set.
+ * `contains` matches anywhere in the resource id. Values are always sent as bound
+ * parameters server-side (never interpolated), so the query is injection-safe.
+ */
+export function buildAssetQuery(opts: AssetQueryInputs): AssetQuery {
+  const filters: AssetFilter[] = [];
+  if (opts.type) filters.push({ column: "type", op: "eq", value: opts.type });
+  if (opts.location) filters.push({ column: "location", op: "eq", value: opts.location });
+  if (opts.contains) filters.push({ column: "resource_id", op: "contains", value: opts.contains });
+  const tags: Record<string, string> = {};
+  if (opts.tagKey && opts.tagValue) tags[opts.tagKey] = opts.tagValue;
+  return { filters, tags, limit: opts.limit ?? 50, offset: opts.offset ?? 0 };
+}
+
+/** Run a structured asset query (M4.2). */
+export const queryAssets = (q: AssetQuery): Promise<Asset[]> =>
+  apiPost<Asset[]>("/api/assets/query", q);
+
+/** Fetch a single asset by exact id via the query API; `null` when not found. */
+export async function getAsset(resourceId: string): Promise<Asset | null> {
+  const rows = await queryAssets({
+    filters: [{ column: "resource_id", op: "eq", value: resourceId }],
+    limit: 1,
+  });
+  return rows[0] ?? null;
+}
+
+/** An asset's relationship edges, both directions (M4.3). */
+export const getAssetRelationships = (resourceId: string): Promise<AssetRelationship[]> =>
+  apiGet<AssetRelationship[]>(`/api/assets${resourceId}/relationships`);
+
+/** An asset's change-history timeline, newest-first (M4.4). */
+export const getAssetHistory = (resourceId: string): Promise<AssetEvent[]> =>
+  apiGet<AssetEvent[]>(`/api/assets${resourceId}/history`);
