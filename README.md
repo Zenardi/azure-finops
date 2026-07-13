@@ -1,15 +1,30 @@
-# Azure FinOps Optimizer
+# Azure Governance-as-Code & FinOps
 
 [![CI](https://github.com/Zenardi/azure-finops/actions/workflows/ci.yml/badge.svg)](https://github.com/Zenardi/azure-finops/actions/workflows/ci.yml)
 
-Analyze an Azure subscription's **cost and consumption**, visualize spend by
-**resource / resource type / region**, and recommend (and, when approved,
-**execute**) right-sizing and shutdown actions from CPU / RAM / I/O and other
-FinOps metrics — pulling from **Azure Cost Management** and **Azure Monitor**,
-surfacing everything on **Grafana**, with a **pluggable AI** layer (Anthropic by
-default; any OpenAI-compatible/local model).
+**Cloud governance-as-code *and* FinOps for Azure, in one self-hostable stack.**
+Two pillars over a shared *collect → store → surface* backbone:
+
+- **Governance-as-code** (à la [Stacklet](https://stacklet.io/)), built on
+  **[Cloud Custodian](https://cloudcustodian.io/)** (`c7n` + `c7n-azure`): author,
+  validate, **version** and **GitOps-sync** policies, group them into
+  **collections**, **evaluate them on a schedule across every subscription** (pull
+  mode), and review the full **execution history** — which resources each policy
+  matched and how every run turned out.
+- **FinOps** cost & utilization optimization: visualize spend by
+  **resource / type / region**, generate **AI-assisted right-sizing and shutdown
+  recommendations** from CPU / RAM / I/O metrics, and — once approved — **execute
+  guarded remediation**.
+
+Everything is pulled from **Azure Cost Management**, **Monitor**, **Resource Graph**
+and **Advisor**, persisted to **Postgres/TimescaleDB**, and surfaced on **Grafana**
+and a **Next.js** UI — with a **pluggable AI** layer (Anthropic by default; any
+OpenAI-compatible/local model). It runs fully offline with recorded fixtures
+(`FINOPS_MOCK=1`), so no Azure subscription is required to see it work.
 
 ## Status
+
+**Platform & FinOps** — the cost-optimization backbone:
 
 | Phase | Scope | State |
 |------|-------|-------|
@@ -20,12 +35,21 @@ default; any OpenAI-compatible/local model).
 | 4 | FastAPI + Next.js UI (review/approve) | ✅ done |
 | 5 | Guarded remediation (deallocate/resize/delete, dry-run default) | ✅ done |
 
-The MVP runs fully offline with recorded fixtures (`FINOPS_MOCK=1`) — no Azure
-subscription required to see the pipeline and dashboards working.
+**Governance-as-code** — Cloud Custodian policy management & scheduled execution:
 
-## Grafana feasibility (the assessment you asked for)
+| Milestone | Scope | State |
+|------|-------|-------|
+| M1 | Policy engine wrapper (`c7n` + `c7n-azure`): validate / schema / dry-run | ✅ done |
+| M2 | Policy CRUD API + editor UI, collections, GitOps sync, version history & diff | ✅ done |
+| M3.1–M3.3 | Execution results storage, pull-mode orchestrator, execution history API + UI | ✅ done |
+| M3.4 | Per-policy compliance & health metrics (API + Grafana) | 🚧 in review |
 
-**Feasible.** Grafana's native **Azure Monitor** datasource covers live metrics,
+Both tracks run fully offline with recorded fixtures (`FINOPS_MOCK=1`) — no Azure
+subscription required to see the pipeline, policies and dashboards working.
+
+## Dashboards & data model (Grafana)
+
+Grafana's native **Azure Monitor** datasource covers live metrics,
 Log Analytics (KQL) and Resource Graph, but has **no native Cost Management
 support**. So cost + AI-recommendation data is written to **Postgres/TimescaleDB**
 and read via Grafana's Postgres datasource (historical trends + persisted
@@ -57,7 +81,22 @@ Two Azure credentials by design: a **read-only SP** for collection (Reader +
 Cost Management Reader + Monitoring Reader) and a **separate write-scoped SP**
 for remediation.
 
-### Policy engine (Cloud Custodian)
+## Governance-as-code (Cloud Custodian)
+
+The governance pillar — author policies, run them **on a schedule across every
+subscription**, and audit exactly what each run matched. This loop is independent of
+the FinOps cost pipeline above and runs on its own cadence:
+
+```
+Policies ──(author / validate / version / GitOps sync / collections)
+   │
+   ▼
+Cloud Custodian engine (c7n + c7n-azure) ── injectable, mockable seam
+   │   scheduled pull mode: run_all_policies() every POLICY_RUN_INTERVAL_SECONDS,
+   │   fanned across every enabled subscription (per-policy failure isolation)
+   ▼
+policy_executions + policy_matches ──► Executions UI (history + per-run drill-down)
+```
 
 Governance-as-code is built on **[Cloud Custodian](https://cloudcustodian.io/)**
 (`c7n` + `c7n-azure`) — the open-source rules engine (the same one Stacklet
@@ -273,12 +312,12 @@ backend/azure_finops/
   analysis/    (rollup/rules/idle/pricing/savings — Phase 2)
   ai/          (base/anthropic/openai/factory/prompt — Phase 3)
   remediation/ (executor/guardrails/approval — Phase 5)
-  custodian/   engine.py (Cloud Custodian c7n + c7n-azure policy engine — M1)
-  storage/     schema.py db.py repository.py
+  custodian/   engine.py gitops.py (Cloud Custodian c7n + c7n-azure — engine + GitOps sync)
+  storage/     schema.py db.py repository.py (policies, executions, cost, SQL views)
   api/         main.py
   fixtures/    inventory.json cost.json custodian_policy_result.json
-grafana/       provisioning/ + dashboards/finops-cost.json
-frontend/      (Next.js — Phase 4)
+grafana/       provisioning/ + dashboards/ (cost, recommendations, …)
+frontend/app/  policies/ collections/ executions/ costs/ recommendations/ … (Next.js)
 docker-compose.yml  Makefile  .env.example
 ```
 
