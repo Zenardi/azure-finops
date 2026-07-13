@@ -162,6 +162,27 @@ jobs:
           assert created and created[0]["data"].get("actor"), hist
           print(f"assetdb e2e OK: asset state={vm[0]['state']}, actor={created[0]['data']['actor']}")
           PY
+      - name: Smoke-test custodian action executor (dry-run, M7.1)
+        run: |
+          set -euo pipefail
+          # Resolve a policy's actions and dry-run one through the deployed backend
+          # image. Dry-run makes ZERO Azure calls, so this is fully mock-safe.
+          docker compose exec -T backend python - <<'PY'
+          from azure_finops.config import Settings
+          from azure_finops.custodian import engine
+          from azure_finops.remediation import executor
+          spec = {"policies": [{"name": "p", "resource": "azure.vm",
+                  "actions": ["stop", {"type": "tag", "tag": "cost-center", "value": "eng"}]}]}
+          actions = engine.resolve_actions(spec)
+          assert actions == [{"type": "stop"},
+                             {"type": "tag", "tag": "cost-center", "value": "eng"}], actions
+          vm = {"id": "/subscriptions/s/resourceGroups/rg/providers/"
+                      "Microsoft.Compute/virtualMachines/vm-1",
+                "type": "Microsoft.Compute/virtualMachines", "name": "vm-1"}
+          res = executor.execute_action("delete", vm, settings=Settings(), dry_run=True)
+          assert res["executed"] is False and res["dry_run"] is True, res
+          print(f"custodian-actions e2e OK: resolved {len(actions)} action(s); {res['message']}")
+          PY
       - name: Assert UI routes render (assets M4.5 + account groups M5.1 + bindings M5.4 + events M6.4, mock mode)
         run: |
           set -euo pipefail

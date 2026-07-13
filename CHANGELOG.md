@@ -47,6 +47,25 @@ All notable changes to this project are documented here. Format loosely follows
     via `--ignore-unfixed` while still failing on anything actionable.
 
 ### Added
+- **M7.1 — Custodian action executor.** Opens the remediation track: the actions
+  declared on a Cloud Custodian policy (`tag`, `mark-for-op`, `stop`, `delete`) now
+  execute against a matched resource through **injectable** Azure SDK clients.
+  `remediation/executor.execute_action(action, resource, *, settings, clients=None,
+  credential=None, dry_run=True)` maps each action — `tag`/`mark-for-op` → the
+  resource **Tags API** (`create_or_update_at_scope`, Merge) with the resource id +
+  payload; `stop` → `virtual_machines.begin_deallocate`; `delete` →
+  `virtual_machines`/`disks.begin_delete` — and honours **dry-run** (a preview with
+  **zero** Azure calls). Live execution builds its clients from the **write-scoped**
+  credential (`write_credential`); unit tests inject spies via the new
+  `ActionClients` seam, so no test ever touches Azure. Unknown action types — or
+  actions that don't apply to the resource kind (e.g. `stop` on a storage account) —
+  return a **structured `{"executed": false, "error": ...}`** dict, never a crash.
+  `custodian/engine.resolve_actions(spec)` surfaces a policy's actions, each
+  normalized to a `{"type": ...}` dict (string shorthand or mapping). New
+  `backend/tests/test_custodian_actions.py` (15 tests, TDD) covers every action's
+  happy path, dry-run-no-calls, and the negative/edge cases; the CI e2e job dry-runs
+  an action through the deployed backend image. New/changed code is at **100%**
+  line coverage.
 - **M6.4 — Event config & status UI.** Closes out real-time enforcement with a master
   switch and a live feed. New **`EVENT_MODE_ENABLED`** config (default `true`; `.env.example`)
   gates the whole webhook — when off, `POST /api/events/azure` accepts deliveries with **202**

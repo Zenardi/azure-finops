@@ -55,7 +55,8 @@ OpenAI-compatible/local model). It runs fully offline with recorded fixtures
 | M6.1 | Real-time enforcement — Azure Event Grid ingestion endpoint (event mode) | ✅ done |
 | M6.2 | Event-mode policy trigger — react to an event by running matching policies | ✅ done |
 | M6.3 | Real-time AssetDB updates — events stream create/update/delete into inventory | ✅ done |
-| M6.4 | Event config & status UI — EVENT_MODE_ENABLED gate + recent-events feed | 🚧 in review |
+| M6.4 | Event config & status UI — EVENT_MODE_ENABLED gate + recent-events feed | ✅ done |
+| M7.1 | Custodian action executor — map tag/mark-for-op/stop/delete to Azure SDK | 🚧 in review |
 
 Both tracks run fully offline with recorded fixtures (`FINOPS_MOCK=1`) — no Azure
 subscription required to see the pipeline, policies and dashboards working.
@@ -373,6 +374,20 @@ way to pause enforcement without tearing down the Event Grid subscription. **`GE
 `PolicyExecution`s now stamp the `event_id` that fired them, so the feed joins event → runs.
 The Next.js **`/events`** page renders it: event type / resource / subscription / received
 time, and a status badge per triggered run. An empty feed is `[]`, not an error.
+
+**Custodian action executor (M7.1).** Opens the remediation track — Cloud Custodian's
+automated enforcement. The actions declared on a policy (`tag`, `mark-for-op`, `stop`,
+`delete`) execute against a matched resource through **injectable** Azure SDK clients:
+`remediation/executor.execute_action(action, resource, *, settings, clients=None,
+dry_run=True)` maps `tag`/`mark-for-op` → the resource **Tags API**
+(`create_or_update_at_scope`, `Merge`) with the resource id + payload, `stop` →
+`virtual_machines.begin_deallocate`, and `delete` → `virtual_machines`/`disks.begin_delete`.
+**Dry-run is honoured** — a preview with **zero** Azure calls — and the live path builds its
+clients from the **write-scoped** credential (`write_credential`); tests inject spies via the
+new `ActionClients` seam, so no unit test ever touches Azure. Unknown action types, or
+actions that don't apply to the resource kind (e.g. `stop` on a storage account), return a
+**structured error** dict rather than raising. `custodian/engine.resolve_actions(spec)`
+surfaces a policy's actions, each normalized to a `{"type": ...}` dict.
 
 Two API endpoints expose the engine's offline surface (M1.3):
 
