@@ -144,6 +144,34 @@ class CollectionPolicy(Base):
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class InstalledPack(Base):
+    """A policy pack that has been installed into a collection (M10.1).
+
+    Installing a bundled pack (:mod:`azure_finops.packs.registry`) materializes its
+    policies (upsert-by-name, ``source='pack'``) and a collection named after the
+    pack; this row records the installed ``version`` and that ``collection_id`` so
+    re-installing the same version is a no-op and the UI can list what's installed.
+    ``enabled`` gates *binding eligibility*: disabling a pack disables its member
+    policies so they stop resolving into binding runs. Deleting the collection
+    cascades this row away.
+    """
+
+    __tablename__ = "installed_packs"
+
+    name: Mapped[str] = mapped_column(String(128), primary_key=True)
+    version: Mapped[str] = mapped_column(String(32))
+    collection_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("policy_collections.id", ondelete="CASCADE"), index=True
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    installed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class PolicyExecution(Base):
     """One scheduled/triggered run of a policy and its outcome (M3.1).
 

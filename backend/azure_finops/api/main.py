@@ -45,6 +45,7 @@ from ..models import (
     ValidateResult,
 )
 from ..notify.dispatch import KNOWN_TRANSPORTS
+from ..packs import registry as packs
 from ..remediation import approval as remediation
 from ..resilience import REGISTRY
 from ..storage import repository as repo
@@ -425,6 +426,57 @@ def remove_policy_from_collection(collection_id: int, policy_id: int) -> dict[st
     if collection is None:
         raise HTTPException(status_code=404, detail="collection or membership not found")
     return collection
+
+
+# --------------------------------------------------------------------------- #
+# Policy packs (M10.1) — installable, versioned bundles of curated policies
+# --------------------------------------------------------------------------- #
+class PackEnabled(BaseModel):
+    enabled: bool
+
+
+@app.get("/api/packs")
+def list_packs() -> list[dict[str, Any]]:
+    """List bundled packs available to install (name/version/description/policy_count)."""
+    return packs.list_packs()
+
+
+@app.get("/api/packs/installed")
+def list_installed_packs() -> list[dict[str, Any]]:
+    """List packs already installed, with their tracked version and enabled state."""
+    with session_scope() as session:
+        return repo.list_installed_packs(session)
+
+
+@app.post("/api/packs/{name}/install")
+def install_pack(
+    name: str,
+    runner: Annotated[CustodianRunner | None, Depends(get_custodian_runner)] = None,
+) -> dict[str, Any]:
+    """Install a bundled pack: materialize its validated policies into a collection.
+
+    An unknown pack is ``404``; a pack whose policies fail validation is ``422``
+    (nothing is persisted). A successful install returns the install report.
+    """
+    report = packs.install_pack(name, runner=runner)
+    if not report["ok"]:
+        if report["errors"]:
+            raise HTTPException(
+                status_code=422,
+                detail={"message": report["error"], "errors": report["errors"]},
+            )
+        raise HTTPException(status_code=404, detail=report["error"])
+    return report
+
+
+@app.post("/api/packs/{name}/enabled")
+def set_pack_enabled(name: str, body: PackEnabled) -> dict[str, Any]:
+    """Enable/disable an installed pack — toggles its member policies' binding eligibility."""
+    with session_scope() as session:
+        result = repo.set_pack_enabled(session, name, body.enabled)
+    if result is None:
+        raise HTTPException(status_code=404, detail="pack not installed")
+    return result
 
 
 # --------------------------------------------------------------------------- #

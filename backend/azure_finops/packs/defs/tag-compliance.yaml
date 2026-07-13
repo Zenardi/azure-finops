@@ -1,0 +1,21 @@
+name: tag-compliance
+version: 1.0.0
+title: Tag Compliance
+description: >-
+  Enforce a baseline tagging standard so ownership and chargeback stay
+  accurate — flag core resources missing an Environment or CostCenter tag.
+policies:
+  - name: tag-compliance-vms-require-environment
+    resource: azure.vm
+    description: Virtual machines must carry an Environment tag.
+    filters:
+      - type: value
+        key: tags.Environment
+        value: absent
+  - name: tag-compliance-disks-require-costcenter
+    resource: azure.disk
+    description: Managed disks must carry a CostCenter tag for chargeback.
+    filters:
+      - type: value
+        key: tags.CostCenter
+        value: absent
