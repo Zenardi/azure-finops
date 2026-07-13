@@ -5,6 +5,23 @@ All notable changes to this project are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+- **Policy packs — installable, versioned bundles of curated policies (M10.1).**
+  Curated Cloud Custodian policies now ship as **packs** (YAML under
+  `backend/azure_finops/packs/defs/`): `cost-hygiene` (unattached disks,
+  unassociated public IPs) and `tag-compliance` (Environment / CostCenter tag
+  baselines). `azure_finops.packs.registry` discovers them (`list_packs` /
+  `get_pack`) and installs one (`install_pack`) by **validating every policy
+  through the engine, then materializing** the (upsert-by-name, `source='pack'`)
+  policies plus a collection named after the pack, tracking the installed version
+  in a new `installed_packs` table. Install is **atomic on validation** (a pack
+  with any invalid policy installs nothing and is reported) and **idempotent**
+  (re-installing the same version reuses the collection, creating no duplicates).
+  New endpoints: `GET /api/packs`, `GET /api/packs/installed`,
+  `POST /api/packs/{name}/install` (`404` unknown, `422` invalid),
+  `POST /api/packs/{name}/enabled` — enabling/disabling a pack cascades to its
+  member policies' `enabled` flag, toggling their binding eligibility.
+
 ### Changed
 - **CI — bumped deprecated GitHub Actions off the retiring Node 20 runtime.**
   `actions/checkout@v4 → v5`, `actions/setup-node@v4 → v5`, and

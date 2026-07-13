@@ -67,7 +67,8 @@ OpenAI-compatible/local model). It runs fully offline with recorded fixtures
 | M9.1 | Compliance posture dashboard — compliant/non-compliant counts by policy/subscription/collection (API + Grafana) | ✅ done |
 | M9.2 | Policy execution health dashboard — success/failure rate, avg duration & last-run per policy/binding (API + Grafana) | ✅ done |
 | M9.3 | Resource compliance explorer (Next.js) — drill policy → matched resources → asset detail | ✅ done |
-| M9.4 | Governance reporting & export — streaming, paginated CSV/JSON + optional scheduled report | 🚧 in review |
+| M9.4 | Governance reporting & export — streaming, paginated CSV/JSON + optional scheduled report | ✅ done |
+| M10.1 | Policy packs — installable, versioned bundles of curated policies that materialize into a collection | 🚧 in review |
 
 Both tracks run fully offline with recorded fixtures (`FINOPS_MOCK=1`) — no Azure
 subscription required to see the pipeline, policies and dashboards working.
@@ -285,6 +286,20 @@ backs an **optional scheduled report**: with `GOVERNANCE_REPORT_ENABLED=true` th
 scheduler writes a timestamped CSV to `APP_DATA_DIR` every
 `GOVERNANCE_REPORT_INTERVAL_SECONDS` (off by default — the on-demand export needs no
 flag).
+
+**Policy packs (M10.1).** Curated Cloud Custodian policies ship as installable,
+versioned **packs** — YAML under `azure_finops/packs/defs/` (à la Stacklet's
+out-of-the-box packs). `GET /api/packs` lists what's available (name, version,
+policy count); `POST /api/packs/{name}/install` **validates every policy through the
+engine, then materializes** the (upsert-by-name, `source='pack'`) policies plus a
+collection named after the pack, recording the installed version in `installed_packs`.
+Install is **atomic on validation** — a pack with any invalid policy is reported
+(`422`) and writes nothing — and **idempotent**: re-installing the same version reuses
+the collection and creates no duplicates. `POST /api/packs/{name}/enabled` toggles a
+pack's **binding eligibility** by cascading its `enabled` flag to the member policies
+(a disabled pack stops resolving into binding runs). Two packs ship today —
+`cost-hygiene` (unattached disks, unassociated public IPs) and `tag-compliance`
+(Environment / CostCenter tag baselines).
 
 **AssetDB (M4.1).** Every pipeline run also populates a queryable, near-real-time
 asset inventory (à la Stacklet's AssetDB). The `assets` table is a richer superset

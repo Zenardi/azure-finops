@@ -1,0 +1,25 @@
+name: cost-hygiene
+version: 1.0.0
+title: Cost Hygiene
+description: >-
+  Surface Azure resources that keep billing without delivering value —
+  unattached managed disks and unassociated static public IPs.
+policies:
+  - name: cost-hygiene-unattached-disks
+    resource: azure.disk
+    description: >-
+      Managed disks left in the Unattached state still bill for their
+      provisioned capacity. Flag them for review or cleanup.
+    filters:
+      - type: value
+        key: properties.diskState
+        value: Unattached
+  - name: cost-hygiene-unassociated-public-ips
+    resource: azure.publicip
+    description: >-
+      Static public IPs not associated with any IP configuration bill hourly
+      even while idle. Flag them for release.
+    filters:
+      - type: value
+        key: properties.ipConfiguration
+        value: absent

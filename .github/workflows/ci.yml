@@ -695,6 +695,53 @@ jobs:
           print("governance export OK:", json.dumps(sorted(ours_csv)))
           PY
 
+      - name: Smoke-test policy pack install/enable end to end (M10.1)
+        run: |
+          set -euo pipefail
+          # Through the deployed backend image + HTTP API, against the REAL c7n engine
+          # (validates the bundled pack YAML). Assert the pack is listed, installing it
+          # materializes a collection of its policies, re-installing is idempotent (no
+          # duplicates), and disable/enable toggles the pack. Uses the fixed bundled
+          # pack name so it is safe on the shared CI DB (install is idempotent).
+          docker compose exec -T backend python - <<'PY'
+          import json, urllib.request
+
+          def call(path, method="GET", body=None):
+              data = json.dumps(body).encode() if body is not None else None
+              req = urllib.request.Request(
+                  f"http://localhost:8000{path}", data=data, method=method,
+                  headers={"Content-Type": "application/json"})
+              with urllib.request.urlopen(req) as r:
+                  return json.load(r)
+
+          packs = call("/api/packs")
+          entry = next(p for p in packs if p["name"] == "cost-hygiene")
+          assert entry["version"], entry
+          assert entry["policy_count"] >= 1, entry
+
+          report = call("/api/packs/cost-hygiene/install", method="POST")
+          assert report["ok"] is True, report
+          cid = report["collection_id"]
+          installed_count = report["added"] + report["unchanged"]
+          assert installed_count == entry["policy_count"], report
+
+          collection = call(f"/api/collections/{cid}")
+          assert collection["name"] == "cost-hygiene", collection
+          assert collection["policy_count"] == entry["policy_count"], collection
+          assert all(p["resource_type"].startswith("azure.") for p in collection["policies"]), collection
+
+          again = call("/api/packs/cost-hygiene/install", method="POST")
+          assert again["added"] == 0, again
+          assert again["unchanged"] == entry["policy_count"], again
+          assert again["collection_id"] == cid, again
+
+          off = call("/api/packs/cost-hygiene/enabled", method="POST", body={"enabled": False})
+          assert off["enabled"] is False, off
+          on = call("/api/packs/cost-hygiene/enabled", method="POST", body={"enabled": True})
+          assert on["enabled"] is True, on
+          print("policy pack OK:", json.dumps({"collection_id": cid, "policies": entry["policy_count"]}))
+          PY
+
       - name: Assert UI routes render (assets M4.5 + account groups M5.1 + bindings M5.4 + events M6.4, mock mode)
         run: |
           set -euo pipefail

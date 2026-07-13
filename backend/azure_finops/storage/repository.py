@@ -403,6 +403,12 @@ def get_policy(session: Session, policy_id: int) -> dict[str, Any] | None:
     return _policy_public(rec) if rec is not None else None
 
 
+def get_policy_by_name(session: Session, name: str) -> dict[str, Any] | None:
+    """Look up a policy by its unique ``name`` (``None`` if absent)."""
+    rec = session.query(schema.Policy).filter(schema.Policy.name == name).one_or_none()
+    return _policy_public(rec) if rec is not None else None
+
+
 def list_policies(session: Session, enabled_only: bool = False) -> list[dict[str, Any]]:
     query = session.query(schema.Policy)
     if enabled_only:
@@ -601,6 +607,25 @@ def create_collection(
     return _collection_public(session, rec)
 
 
+def get_or_create_collection(
+    session: Session, *, name: str, description: str | None = None
+) -> dict[str, Any]:
+    """Return the collection named ``name``, creating it if absent (idempotent).
+
+    Used by pack install so re-installing reuses the pack's collection rather than
+    colliding on the unique ``name``. An existing collection's description is left
+    untouched.
+    """
+    existing = (
+        session.query(schema.PolicyCollection)
+        .filter(schema.PolicyCollection.name == name)
+        .one_or_none()
+    )
+    if existing is not None:
+        return _collection_public(session, existing)
+    return create_collection(session, name=name, description=description)
+
+
 def get_collection(session: Session, collection_id: int) -> dict[str, Any] | None:
     rec = session.get(schema.PolicyCollection, collection_id)
     return _collection_public(session, rec) if rec is not None else None
@@ -654,6 +679,79 @@ def remove_policy_from_collection(
     session.delete(link)
     session.flush()
     return _collection_public(session, collection)
+
+
+# --------------------------------------------------------------------------- #
+# Installed policy packs (M10.1)
+# --------------------------------------------------------------------------- #
+def _installed_pack_public(session: Session, rec: schema.InstalledPack) -> dict[str, Any]:
+    """Serialize an installed-pack row with its collection's policy count."""
+    policy_count = (
+        session.query(schema.CollectionPolicy)
+        .filter(schema.CollectionPolicy.collection_id == rec.collection_id)
+        .count()
+    )
+    return {
+        "name": rec.name,
+        "version": rec.version,
+        "collection_id": rec.collection_id,
+        "enabled": rec.enabled,
+        "policy_count": policy_count,
+        "installed_at": rec.installed_at.isoformat() if rec.installed_at else None,
+        "updated_at": rec.updated_at.isoformat() if rec.updated_at else None,
+    }
+
+
+def upsert_installed_pack(
+    session: Session, *, name: str, version: str, collection_id: int
+) -> dict[str, Any]:
+    """Record (or update) an installed pack keyed by ``name`` — idempotent.
+
+    A re-install of the same pack updates the tracked ``version``/``collection_id``
+    in place (no duplicate row) and preserves the existing ``enabled`` state so a
+    disabled pack is not silently re-enabled by re-installing it.
+    """
+    rec = session.get(schema.InstalledPack, name)
+    if rec is None:
+        rec = schema.InstalledPack(name=name, version=version, collection_id=collection_id)
+        session.add(rec)
+    else:
+        rec.version = version
+        rec.collection_id = collection_id
+    session.flush()
+    return _installed_pack_public(session, rec)
+
+
+def get_installed_pack(session: Session, name: str) -> dict[str, Any] | None:
+    rec = session.get(schema.InstalledPack, name)
+    return _installed_pack_public(session, rec) if rec is not None else None
+
+
+def list_installed_packs(session: Session) -> list[dict[str, Any]]:
+    recs = session.query(schema.InstalledPack).order_by(schema.InstalledPack.name.asc()).all()
+    return [_installed_pack_public(session, r) for r in recs]
+
+
+def set_pack_enabled(session: Session, name: str, enabled: bool) -> dict[str, Any] | None:
+    """Toggle a pack's ``enabled`` flag and cascade it to member policies.
+
+    Binding runs resolve a collection's policies enabled-only, so flipping the pack
+    flips its policies' ``enabled`` — a disabled pack stops running in bindings.
+    Returns ``None`` if the pack isn't installed.
+    """
+    rec = session.get(schema.InstalledPack, name)
+    if rec is None:
+        return None
+    rec.enabled = enabled
+    session.query(schema.Policy).filter(
+        schema.Policy.id.in_(
+            session.query(schema.CollectionPolicy.policy_id).filter(
+                schema.CollectionPolicy.collection_id == rec.collection_id
+            )
+        )
+    ).update({schema.Policy.enabled: enabled}, synchronize_session=False)
+    session.flush()
+    return _installed_pack_public(session, rec)
 
 
 # --------------------------------------------------------------------------- #
