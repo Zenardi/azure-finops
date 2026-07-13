@@ -491,6 +491,12 @@ class RemediationAction(Base):
     recommendation_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("recommendations.id"), index=True
     )
+    # The PolicyMatch this action enforces (M7.2), if it originated from a policy
+    # run rather than a FinOps recommendation. Nullable — an action ties to one or
+    # the other. Lets the approval workflow gate policy-derived actions.
+    policy_match_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("policy_matches.id"), index=True
+    )
     action_type: Mapped[str] = mapped_column(String(64))
     params: Mapped[dict] = mapped_column(JSONB, default=dict)
     dry_run: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -47,6 +47,24 @@ All notable changes to this project are documented here. Format loosely follows
     via `--ignore-unfixed` while still failing on anything actionable.
 
 ### Added
+- **M7.2 — Approval workflow for policy actions.** Gates policy-driven enforcement
+  behind **human approval** — a matched resource's action is queued **pending** and
+  never touches Azure until approved. `remediation/approval.queue_policy_action(...)`
+  records a `RemediationAction` linked to its originating **`PolicyMatch`** (new
+  nullable **`policy_match_id`** FK in `storage/schema.py`) in the `pending` state;
+  `approve_action` runs it through the M7.1 executor **behind the existing guardrails**
+  (exclude-tag + allow-list) and the `REMEDIATION_ENABLED` kill-switch (so an approval
+  can still return `blocked` or a dry-run preview), and `reject_action` sets `rejected`
+  and never executes. The state machine is strict — only a `pending` action can be
+  decided; deciding an **unknown** action raises `NotFound` → **404**, an
+  **already-decided** one raises the new `AlreadyDecided` → **409**. Three endpoints
+  expose it: `POST /api/policy-matches/{id}/actions` (queue), `POST
+  /api/remediation/{id}/approve`, `POST /api/remediation/{id}/reject`;
+  `list_remediation_actions` now surfaces `policy_match_id`. New
+  `backend/tests/test_policy_action_approval.py` (22 tests, TDD) covers the full state
+  machine (pending/approve/reject/blocked/dry-run), the unknown/already-decided edges,
+  and the live executor branch; the CI e2e job drives queue → approve → executed and
+  reject → rejected through the running stack. New/changed code at **100%** coverage.
 - **M7.1 — Custodian action executor.** Opens the remediation track: the actions
   declared on a Cloud Custodian policy (`tag`, `mark-for-op`, `stop`, `delete`) now
   execute against a matched resource through **injectable** Azure SDK clients.

@@ -29,11 +29,16 @@ class NotApproved(Exception):
     pass
 
 
+class AlreadyDecided(Exception):
+    """The action has already left ``pending`` (approved/rejected/executed/…)."""
+
+
 def _result(action: schema.RemediationAction) -> dict[str, Any]:
     message = (action.result or {}).get("message") if action.result else None
     return {
         "action_id": action.id,
         "recommendation_id": action.recommendation_id,
+        "policy_match_id": action.policy_match_id,
         "action_type": action.action_type,
         "dry_run": action.dry_run,
         "status": action.status,
@@ -121,4 +126,142 @@ def remediate(
         action.error = str(exc)
         rec.status = "failed"
         logger.exception("remediation failed for %s", rec.resource_id)
+    return _result(action)
+
+
+# --------------------------------------------------------------------------- #
+# Policy-action approval workflow (M7.2)
+# --------------------------------------------------------------------------- #
+# A resource a policy matched has its action **queued pending**; a human then
+# approves (→ guarded execution) or rejects (→ never executes). The state machine
+# is strict: only a ``pending`` action can be decided.
+_PENDING = "pending"
+
+
+def queue_policy_action(
+    session: Session,
+    policy_match_id: int,
+    action: str | dict,
+    *,
+    actor: str | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Queue a policy-match-derived action as **pending** — this never executes.
+
+    ``action`` is a Cloud Custodian action (string shorthand or ``{"type": ...}``
+    mapping); it is normalized and stored with the originating match so approval
+    can later enforce it. Raises :class:`NotFound` for an unknown match and
+    ``ValueError`` for an action with no resolvable type.
+    """
+    match = session.get(schema.PolicyMatch, policy_match_id)
+    if match is None:
+        raise NotFound(f"policy match {policy_match_id} not found")
+    spec = executor.normalize_action(action)
+    row = schema.RemediationAction(
+        policy_match_id=policy_match_id,
+        action_type=spec["type"],
+        params={
+            "action": spec,
+            "resource_id": match.resource_id,
+            "resource_type": match.resource_type,
+        },
+        dry_run=dry_run,
+        actor=actor,
+        status=_PENDING,
+    )
+    session.add(row)
+    session.flush()
+    return _result(row)
+
+
+def approve_action(session: Session, action_id: int, *, actor: str | None = None) -> dict[str, Any]:
+    """Approve a pending policy action → execute it (guarded) → record the outcome."""
+    action = _pending_or_raise(session, action_id)
+    action.status = "approved"
+    if actor:
+        action.actor = actor
+    session.flush()
+    return _execute_policy_action(session, action)
+
+
+def reject_action(session: Session, action_id: int, *, actor: str | None = None) -> dict[str, Any]:
+    """Reject a pending policy action — it is never executed."""
+    action = _pending_or_raise(session, action_id)
+    action.status = "rejected"
+    if actor:
+        action.actor = actor
+    action.executed_at = datetime.now(UTC)
+    return _result(action)
+
+
+def _pending_or_raise(session: Session, action_id: int) -> schema.RemediationAction:
+    action = session.get(schema.RemediationAction, action_id)
+    if action is None:
+        raise NotFound(f"remediation action {action_id} not found")
+    if action.status != _PENDING:
+        raise AlreadyDecided(
+            f"action {action_id} is '{action.status}'; only 'pending' can be decided"
+        )
+    return action
+
+
+def _execute_policy_action(session: Session, action: schema.RemediationAction) -> dict[str, Any]:
+    """Enforce an approved action through the M7.1 executor, honouring guardrails."""
+    settings = get_settings()
+    params = action.params or {}
+    resource_id = params.get("resource_id") or ""
+    resource = {"id": resource_id, "type": params.get("resource_type")}
+    spec = params.get("action") or {"type": action.action_type}
+
+    # Global kill-switch forces dry-run — never touch Azure when disabled.
+    effective_dry_run = True if not settings.remediation_enabled else action.dry_run
+    res_obj = session.get(schema.Resource, resource_id) if resource_id else None
+    tags = res_obj.tags if res_obj else {}
+    guard = guardrails.check(resource_id, tags, settings)
+    guard_note = (
+        "" if guard.allowed else " (guardrails would block: " + "; ".join(guard.reasons) + ")"
+    )
+
+    # Guardrails hard-block only real execution; a dry-run still previews.
+    if not guard.allowed and not effective_dry_run:
+        action.status = "blocked"
+        action.error = "; ".join(guard.reasons)
+        logger.info("policy action blocked for %s: %s", resource_id, action.error)
+        return _result(action)
+
+    if settings.finops_mock:
+        phase = "dry-run" if effective_dry_run else "mock-exec"
+        action.result = {
+            "mock": True,
+            "message": f"[{phase}] {action.action_type} {resource_id}{guard_note}",
+        }
+        action.status = "dry_run" if effective_dry_run else "executed"
+        action.executed_at = datetime.now(UTC)
+        return _result(action)
+
+    try:
+        from ..auth import write_credential
+
+        res = executor.execute_action(
+            spec,
+            resource,
+            settings=settings,
+            credential=write_credential(),
+            dry_run=effective_dry_run,
+        )
+        if guard_note and isinstance(res.get("message"), str):
+            res["message"] += guard_note
+        action.result = res
+        action.executed_at = datetime.now(UTC)
+        if res.get("executed"):
+            action.status = "executed"
+        elif res.get("error"):
+            action.status = "failed"
+            action.error = res["error"]
+        else:
+            action.status = "dry_run" if effective_dry_run else "skipped"
+    except Exception as exc:  # noqa: BLE001 - recorded on the audit row
+        action.status = "failed"
+        action.error = str(exc)
+        logger.exception("policy action execution failed for %s", resource_id)
     return _result(action)
