@@ -183,6 +183,49 @@ jobs:
           assert res["executed"] is False and res["dry_run"] is True, res
           print(f"custodian-actions e2e OK: resolved {len(actions)} action(s); {res['message']}")
           PY
+      - name: Smoke-test policy-action approval workflow end to end (M7.2)
+        run: |
+          set -euo pipefail
+          # Drive the approval state machine over HTTP against a real matched resource
+          # (from the pull-mode run above): queue -> pending, approve -> terminal (guarded;
+          # the demo env keeps REMEDIATION_ENABLED=false so it previews), reject -> rejected,
+          # and the 404/409 edges.
+          python3 - <<'PY'
+          import json, urllib.request, urllib.error
+          def _req(method, path, body=None):
+              data = json.dumps(body).encode() if body is not None else None
+              req = urllib.request.Request(
+                  f"http://localhost:8000{path}", data=data, method=method,
+                  headers={"Content-Type": "application/json"})
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      return r.status, json.load(r)
+              except urllib.error.HTTPError as e:
+                  return e.code, None
+          # A match id from the pull-mode execution seeded earlier.
+          _, execs = _req("GET", "/api/policy-executions")
+          _, matches = _req("GET", f"/api/policy-executions/{execs[0]['execution_id']}/matches")
+          match_id = matches[0]["id"]
+          # queue -> pending
+          st, queued = _req("POST", f"/api/policy-matches/{match_id}/actions", {"action": "stop"})
+          assert st == 200 and queued["status"] == "pending", (st, queued)
+          aid = queued["action_id"]
+          # approve -> leaves pending (guarded; previews since REMEDIATION_ENABLED=false)
+          st, approved = _req("POST", f"/api/remediation/{aid}/approve")
+          assert st == 200 and approved["status"] in ("executed", "dry_run"), (st, approved)
+          # approving an already-decided action -> 409
+          st, _ = _req("POST", f"/api/remediation/{aid}/approve")
+          assert st == 409, st
+          # a second action, rejected -> never executes
+          _, q2 = _req("POST", f"/api/policy-matches/{match_id}/actions", {"action": "stop"})
+          st, rej = _req("POST", f"/api/remediation/{q2['action_id']}/reject")
+          assert st == 200 and rej["status"] == "rejected", (st, rej)
+          # deciding an unknown action -> 404
+          st, _ = _req("POST", "/api/remediation/99999999/approve")
+          assert st == 404, st
+          print(f"approval e2e OK: pending -> {approved['status']} (409 on re-approve); "
+                f"second action -> rejected; unknown -> 404")
+          PY
       - name: Assert UI routes render (assets M4.5 + account groups M5.1 + bindings M5.4 + events M6.4, mock mode)
         run: |
           set -euo pipefail

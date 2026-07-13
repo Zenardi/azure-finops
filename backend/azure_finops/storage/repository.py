@@ -1615,7 +1615,7 @@ def list_remediation_actions(session: Session, limit: int = 100) -> list[dict[st
     return _rows(
         session,
         "SELECT ra.id, ra.action_type, ra.dry_run, ra.status, ra.error, ra.requested_at, "
-        "ra.executed_at, ra.actor, r.resource_id, r.category "
+        "ra.executed_at, ra.actor, ra.policy_match_id, r.resource_id, r.category "
         "FROM remediation_actions ra "
         "LEFT JOIN recommendations r ON ra.recommendation_id = r.id "
         "ORDER BY ra.requested_at DESC LIMIT :limit",

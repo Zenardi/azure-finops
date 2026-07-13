@@ -56,7 +56,8 @@ OpenAI-compatible/local model). It runs fully offline with recorded fixtures
 | M6.2 | Event-mode policy trigger — react to an event by running matching policies | ✅ done |
 | M6.3 | Real-time AssetDB updates — events stream create/update/delete into inventory | ✅ done |
 | M6.4 | Event config & status UI — EVENT_MODE_ENABLED gate + recent-events feed | ✅ done |
-| M7.1 | Custodian action executor — map tag/mark-for-op/stop/delete to Azure SDK | 🚧 in review |
+| M7.1 | Custodian action executor — map tag/mark-for-op/stop/delete to Azure SDK | ✅ done |
+| M7.2 | Approval workflow — queue policy actions pending; approve/reject before enforce | 🚧 in review |
 
 Both tracks run fully offline with recorded fixtures (`FINOPS_MOCK=1`) — no Azure
 subscription required to see the pipeline, policies and dashboards working.
@@ -388,6 +389,25 @@ new `ActionClients` seam, so no unit test ever touches Azure. Unknown action typ
 actions that don't apply to the resource kind (e.g. `stop` on a storage account), return a
 **structured error** dict rather than raising. `custodian/engine.resolve_actions(spec)`
 surfaces a policy's actions, each normalized to a `{"type": ...}` dict.
+
+**Approval workflow for policy actions (M7.2).** Enforcement is **gated on human approval** —
+a matched resource's action is queued **pending** and never touches Azure until someone
+approves it. `remediation/approval.queue_policy_action(session, policy_match_id, action, …)`
+records a `RemediationAction` linked to its originating **`PolicyMatch`** (new
+`policy_match_id` FK) in the `pending` state; the state machine is strict:
+
+```
+pending ──approve──▶ approved ─(guarded exec)─▶ executed / blocked / failed
+        └─reject───▶ rejected                    (never executes)
+```
+
+`approve_action` runs the action through the **M7.1 executor** — but still behind the
+existing guardrails (exclude-tag + resource-group allow-list) and the `REMEDIATION_ENABLED`
+kill-switch, so an approval can still come back `blocked` or a dry-run preview. `reject_action`
+sets `rejected` and never executes. Only a `pending` action can be decided: deciding an
+**unknown** action is a `404`, an **already-decided** one a `409`. Three endpoints expose it:
+`POST /api/policy-matches/{id}/actions` (queue, pending), `POST /api/remediation/{id}/approve`,
+and `POST /api/remediation/{id}/reject`.
 
 Two API endpoints expose the engine's offline surface (M1.3):
 

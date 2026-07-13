@@ -834,3 +834,50 @@ def remediate(rec_id: int, dry_run: bool = True, actor: str | None = None) -> di
 def remediation_actions(limit: int = 100) -> list[dict[str, Any]]:
     with session_scope() as session:
         return repo.list_remediation_actions(session, limit=limit)
+
+
+# --------------------------------------------------------------------------- #
+# Approval workflow for policy-driven actions (M7.2)
+# --------------------------------------------------------------------------- #
+class QueueActionRequest(BaseModel):
+    action: str | dict[str, Any]  # a c7n action: "stop" or {"type": "tag", ...}
+    actor: str | None = None
+    dry_run: bool = False
+
+
+@app.post("/api/policy-matches/{match_id}/actions")
+def queue_policy_action(match_id: int, body: QueueActionRequest) -> dict[str, Any]:
+    """Queue a matched resource's action as **pending** approval — never executes."""
+    with session_scope() as session:
+        try:
+            return remediation.queue_policy_action(
+                session, match_id, body.action, actor=body.actor, dry_run=body.dry_run
+            )
+        except remediation.NotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:  # unresolvable action spec
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/remediation/{action_id}/approve")
+def approve_remediation(action_id: int, actor: str | None = None) -> dict[str, Any]:
+    """Approve a pending action → guarded execution. 404 unknown, 409 already-decided."""
+    with session_scope() as session:
+        try:
+            return remediation.approve_action(session, action_id, actor=actor or "ui")
+        except remediation.NotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except remediation.AlreadyDecided as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/remediation/{action_id}/reject")
+def reject_remediation(action_id: int, actor: str | None = None) -> dict[str, Any]:
+    """Reject a pending action — never executes. 404 unknown, 409 already-decided."""
+    with session_scope() as session:
+        try:
+            return remediation.reject_action(session, action_id, actor=actor or "ui")
+        except remediation.NotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except remediation.AlreadyDecided as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
