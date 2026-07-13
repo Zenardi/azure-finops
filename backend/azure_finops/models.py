@@ -222,6 +222,30 @@ class AccountGroupCreate(BaseModel):
     description: str | None = None
 
 
+class BindingIn(BaseModel):
+    """Inbound shape for creating a binding (M5.2) — collection × account group + config.
+
+    ``mode`` is validated against ``{pull, event}`` in the repository (a bad value is a
+    ``400``, not a ``422``). Defaults are guarded: ``dry_run`` and ``enabled`` are true.
+    """
+
+    collection_id: int
+    account_group_id: int
+    schedule: str | None = None
+    mode: str = "pull"
+    dry_run: bool = True
+    enabled: bool = True
+
+
+class BindingUpdate(BaseModel):
+    """Partial update for a binding (M5.2). Only the fields sent are changed."""
+
+    schedule: str | None = None
+    mode: str | None = None
+    dry_run: bool | None = None
+    enabled: bool | None = None
+
+
 class CollectionRecord(BaseModel):
     """A persisted policy collection with its members, as returned by the repository."""
 

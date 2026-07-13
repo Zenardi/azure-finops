@@ -325,6 +325,35 @@ class AccountGroupMember(Base):
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Binding(Base):
+    """Links a policy collection to an account group with execution config (M5.2).
+
+    Stacklet's core *binding* concept: which policies (``collection_id``) run against
+    which accounts (``account_group_id``), how (``mode`` ``pull``/``event``), on what
+    ``schedule`` (cron), and whether guarded (``dry_run``) / active (``enabled``).
+    Both foreign keys are ``ON DELETE CASCADE`` so deleting either side drops the
+    binding without orphan rows.
+    """
+
+    __tablename__ = "bindings"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    collection_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("policy_collections.id", ondelete="CASCADE"), index=True
+    )
+    account_group_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("account_groups.id", ondelete="CASCADE"), index=True
+    )
+    schedule: Mapped[str | None] = mapped_column(String(128))
+    mode: Mapped[str] = mapped_column(String(16), default="pull")
+    dry_run: Mapped[bool] = mapped_column(Boolean, default=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class CostSnapshot(Base):
     __tablename__ = "cost_snapshots"
 

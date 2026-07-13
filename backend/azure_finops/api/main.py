@@ -21,6 +21,8 @@ from ..custodian.engine import CustodianRunner
 from ..models import (
     AccountGroupCreate,
     AssetQuery,
+    BindingIn,
+    BindingUpdate,
     CollectionCreate,
     PolicyCreate,
     PolicyUpdate,
@@ -465,6 +467,66 @@ def remove_subscription_from_group(group_id: int, subscription_id: str) -> dict[
     if group is None:
         raise HTTPException(status_code=404, detail="account group or membership not found")
     return group
+
+
+# --------------------------------------------------------------------------- #
+# Bindings (M5.2) — collection × account group + execution config
+# --------------------------------------------------------------------------- #
+@app.get("/api/bindings")
+def list_bindings() -> list[dict[str, Any]]:
+    with session_scope() as session:
+        return repo.list_bindings(session)
+
+
+@app.post("/api/bindings", status_code=201)
+def create_binding(body: BindingIn) -> dict[str, Any]:
+    with session_scope() as session:
+        try:
+            binding = repo.create_binding(
+                session,
+                collection_id=body.collection_id,
+                account_group_id=body.account_group_id,
+                schedule=body.schedule,
+                mode=body.mode,
+                dry_run=body.dry_run,
+                enabled=body.enabled,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if binding is None:
+        raise HTTPException(status_code=404, detail="collection or account group not found")
+    return binding
+
+
+@app.get("/api/bindings/{binding_id}")
+def get_binding(binding_id: int) -> dict[str, Any]:
+    with session_scope() as session:
+        binding = repo.get_binding(session, binding_id)
+    if binding is None:
+        raise HTTPException(status_code=404, detail="binding not found")
+    return binding
+
+
+@app.put("/api/bindings/{binding_id}")
+def update_binding(binding_id: int, body: BindingUpdate) -> dict[str, Any]:
+    changes = body.model_dump(exclude_unset=True)
+    with session_scope() as session:
+        try:
+            binding = repo.update_binding(session, binding_id, changes)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if binding is None:
+        raise HTTPException(status_code=404, detail="binding not found")
+    return binding
+
+
+@app.delete("/api/bindings/{binding_id}")
+def delete_binding(binding_id: int) -> dict[str, Any]:
+    with session_scope() as session:
+        ok = repo.delete_binding(session, binding_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="binding not found")
+    return {"id": binding_id, "deleted": True}
 
 
 @app.get("/api/summary")

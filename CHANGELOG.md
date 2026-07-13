@@ -47,6 +47,16 @@ All notable changes to this project are documented here. Format loosely follows
     via `--ignore-unfixed` while still failing on anything actionable.
 
 ### Added
+- **M5.2 — Bindings model.** A **binding** links a **policy collection** (M2.3) to an
+  **account group** (M5.1) with execution config — Stacklet's core operational unit that
+  operationalizes governance at scale (*which policies run against which accounts, how,
+  when*). New `bindings` table (FKs to `policy_collections`/`account_groups`, both
+  `ON DELETE CASCADE`), auto-created by `init_db()`, storing `schedule` (cron), `mode`
+  (`pull`|`event`), `dry_run` and `enabled`. Repository CRUD + validation and endpoints
+  `GET/POST/PUT/DELETE /api/bindings[/{id}]`: creating a binding requires an **existing**
+  collection and account group (else `404`), `mode` is validated to `pull`/`event` (else
+  `400`), and bindings **default to `dry_run=true`** / `enabled=true`; deleting an unknown
+  binding is `404`. New `BindingIn` / `BindingUpdate` models.
 - **M5.1 — Account groups.** Organize subscriptions into named **account groups**
   (à la Stacklet account groups) so policies can target logical sets of accounts. New
   `account_groups` table + `account_group_members` join (both FKs `ON DELETE CASCADE`),
