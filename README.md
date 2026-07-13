@@ -43,6 +43,7 @@ OpenAI-compatible/local model). It runs fully offline with recorded fixtures
 | M2 | Policy CRUD API + editor UI, collections, GitOps sync, version history & diff | ✅ done |
 | M3.1–M3.3 | Execution results storage, pull-mode orchestrator, execution history API + UI | ✅ done |
 | M3.4 | Per-policy compliance & health metrics (API + Grafana) | ✅ done |
+| M4.1 | AssetDB — queryable asset inventory with full config (schema + ingestion) | 🚧 in review |
 
 Both tracks run fully offline with recorded fixtures (`FINOPS_MOCK=1`) — no Azure
 subscription required to see the pipeline, policies and dashboards working.
@@ -218,6 +219,16 @@ has executed — never an error), and a provisioned **Policy Health & Compliance
 Grafana dashboard visualises success rate, matches over time, and per-policy /
 per-subscription health.
 
+**AssetDB (M4.1).** Every pipeline run also populates a queryable, near-real-time
+asset inventory (à la Stacklet's AssetDB). The `assets` table is a richer superset
+of `resources` — same identity/location/tags plus the **full resource `config`**
+(JSONB, captured from Resource Graph `properties`), a coarse `state`, and
+`first_seen`/`last_seen`. `repo.upsert_assets` upserts idempotently (`ON CONFLICT`):
+`first_seen` is stamped once, `last_seen`/`config` refresh on every re-ingestion, and
+the first time a resource is seen an append-only `asset_events` row (`event_type`
+`created`, who/how/when + a config snapshot) is written for audit. Each asset carries
+its subscription id (retargeted per subscription in mock mode).
+
 Two API endpoints expose the engine's offline surface (M1.3):
 
 - `POST /api/policies/validate` — dry-run schema-validate a policy `spec` (a
@@ -345,7 +356,7 @@ make coverage  # full suite + 95% gate (spins an ephemeral Postgres via testcont
 make run-mock  # run pipeline locally against a Postgres at localhost:5432
 ```
 
-**Tests:** 250 tests, **~99% line coverage** (gate at 95%, enforced in CI —
+**Tests:** 260 tests, **~99% line coverage** (gate at 95%, enforced in CI —
 `.github/workflows/ci.yml`). Live-Azure code paths are covered via injected fake
 clients; the DB/API/orchestrator/remediation flows run against a throwaway
 PostgreSQL (testcontainers).

@@ -220,6 +220,47 @@ class Resource(Base):
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Asset(Base):
+    """Queryable near-real-time inventory row (M4.1 — AssetDB).
+
+    A richer superset of ``resources``: same identity/location/tags plus the full
+    resource ``config`` (JSONB), a coarse ``state``, and first/last-seen stamps.
+    Upserted idempotently on each ingestion; ``first_seen`` is set once.
+    """
+
+    __tablename__ = "assets"
+
+    resource_id: Mapped[str] = mapped_column(String(512), primary_key=True)
+    subscription_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    resource_group: Mapped[str | None] = mapped_column(String(256))
+    name: Mapped[str | None] = mapped_column(String(256))
+    type: Mapped[str | None] = mapped_column(String(256), index=True)
+    location: Mapped[str | None] = mapped_column(String(64), index=True)
+    sku: Mapped[str | None] = mapped_column(String(128))
+    tags: Mapped[dict] = mapped_column(JSONB, default=dict)
+    config: Mapped[dict] = mapped_column(JSONB, default=dict)
+    state: Mapped[str | None] = mapped_column(String(64))
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AssetEvent(Base):
+    """Append-only audit of asset lifecycle changes (M4.1) — who/how/when.
+
+    ``resource_id`` is a plain indexed column (not an FK): events are an
+    independent audit trail that must survive an asset being deleted.
+    """
+
+    __tablename__ = "asset_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    resource_id: Mapped[str] = mapped_column(String(512), index=True)
+    subscription_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    event_type: Mapped[str] = mapped_column(String(32))
+    data: Mapped[dict] = mapped_column(JSONB, default=dict)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class CostSnapshot(Base):
     __tablename__ = "cost_snapshots"
 

@@ -23,6 +23,7 @@ class ResourceRecord(BaseModel):
     tags: dict[str, str] = Field(default_factory=dict)
     power_state: str | None = None
     extra: dict = Field(default_factory=dict)
+    config: dict = Field(default_factory=dict)  # full resource properties (AssetDB, M4.1)
 
 
 class CostRow(BaseModel):

@@ -35,6 +35,25 @@ All notable changes to this project are documented here. Format loosely follows
     via `--ignore-unfixed` while still failing on anything actionable.
 
 ### Added
+- **M4.1 — AssetDB schema & ingestion.** The foundation of the M4 **AssetDB** — a
+  queryable, near-real-time inventory of every cloud resource with its full config
+  (à la Stacklet's AssetDB). Two new tables auto-created by `init_db()`: `assets`
+  (a richer superset of `resources` — `resource_id` PK, `subscription_id`, `type`,
+  `location`, `resource_group`, `name`, `sku`, `tags` JSONB, the **full resource
+  `config`** JSONB, a coarse `state`, and `first_seen`/`last_seen`) and
+  `asset_events` (an append-only change/audit trail — `resource_id`,
+  `subscription_id`, `event_type`, `data` JSONB, `at`). `azure/inventory.py` now
+  projects the full Resource Graph `properties` into `ResourceRecord.config`
+  (fixtures extended accordingly), and the orchestrator's store phase persists
+  assets each run via `repo.upsert_assets` — an idempotent `ON CONFLICT` upsert that
+  stamps `first_seen` once, refreshes `last_seen`/`config`/`state`, and (via the
+  Postgres `xmax = 0` trick) returns only the **newly inserted** ids so a `created`
+  `asset_event` is recorded on **first sight** only. Re-ingesting the same resource
+  updates it in place without duplicating rows, and each asset carries its
+  (mock-retargeted) `subscription_id`. TDD: `test_assetdb_ingestion.py` (10 tests,
+  DB-backed) covers insert / update-last-seen / idempotence / empty / event-on-first-
+  sight-only / full-config capture / per-subscription tagging / end-to-end pipeline
+  ingestion — `schema.py`, `models.py`, `inventory.py` at 100% coverage.
 - **M3.4 — Per-policy compliance & health metrics.** Aggregates the pull-mode
   execution results (M3.1–M3.3) into per-policy health, surfaced via the API and a
   Grafana dashboard (Stacklet-style policy-health reporting). New SQL views in

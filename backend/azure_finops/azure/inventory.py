@@ -24,6 +24,7 @@ Resources
 | project id, name, type, location, resourceGroup, subscriptionId,
           sku = tostring(sku.name),
           tags,
+          properties,
           powerState = tostring(properties.extended.instanceView.powerState.code),
           diskState = tostring(properties.diskState),
           ipConfig = tostring(properties.ipConfiguration.id),
@@ -42,6 +43,9 @@ def _to_records(
         tags = r.get("tags") or {}
         if not isinstance(tags, dict):
             tags = {}
+        config = r.get("properties") or {}
+        if not isinstance(config, dict):
+            config = {}
         records.append(
             ResourceRecord(
                 resource_id=rid,
@@ -56,6 +60,7 @@ def _to_records(
                 tags={str(k): str(v) for k, v in tags.items()},
                 power_state=r.get("powerState") or None,
                 extra={k: r.get(k) for k in ("diskState", "ipConfig", "numberOfSites")},
+                config=config,
             )
         )
     return records

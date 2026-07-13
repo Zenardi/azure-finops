@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import delete, text
+from sqlalchemy import delete, literal_column, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -680,6 +680,77 @@ def upsert_resources(session: Session, resources: list[m.ResourceRecord]) -> int
     )
     session.execute(stmt)
     return len(rows)
+
+
+# --------------------------------------------------------------------------- #
+# AssetDB (M4.1) — queryable inventory with full config + a change audit trail
+# --------------------------------------------------------------------------- #
+def upsert_assets(session: Session, resources: list[m.ResourceRecord]) -> list[str]:
+    """Idempotently upsert assets; return the resource_ids **newly inserted** this call.
+
+    ``first_seen`` is stamped once (on insert); ``last_seen`` / ``config`` / ``state``
+    and the descriptive columns refresh on every re-ingestion. The Postgres
+    ``xmax = 0`` trick distinguishes a freshly-inserted row from an updated one, so
+    the caller can record a ``created`` :func:`append_asset_event` only on first sight.
+    """
+    if not resources:
+        return []
+    now = datetime.now(UTC)
+    dedup: dict[str, m.ResourceRecord] = {r.resource_id: r for r in resources}
+    rows = [
+        {
+            "resource_id": r.resource_id,
+            "subscription_id": r.subscription_id,
+            "resource_group": r.resource_group,
+            "name": r.name,
+            "type": r.type,
+            "location": r.location,
+            "sku": r.sku,
+            "tags": r.tags,
+            "config": r.config,
+            "state": r.power_state,
+            "last_seen": now,
+        }
+        for r in dedup.values()
+    ]
+    stmt = pg_insert(schema.Asset).values(rows)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["resource_id"],
+        set_={
+            "subscription_id": stmt.excluded.subscription_id,
+            "resource_group": stmt.excluded.resource_group,
+            "name": stmt.excluded.name,
+            "type": stmt.excluded.type,
+            "location": stmt.excluded.location,
+            "sku": stmt.excluded.sku,
+            "tags": stmt.excluded.tags,
+            "config": stmt.excluded.config,
+            "state": stmt.excluded.state,
+            "last_seen": stmt.excluded.last_seen,
+        },
+    ).returning(schema.Asset.resource_id, literal_column("(xmax = 0)").label("inserted"))
+    result = session.execute(stmt)
+    return [row.resource_id for row in result if row.inserted]
+
+
+def append_asset_event(
+    session: Session,
+    *,
+    resource_id: str,
+    subscription_id: str | None,
+    event_type: str,
+    data: dict[str, Any] | None = None,
+) -> None:
+    """Append one asset lifecycle event to the audit trail."""
+    session.add(
+        schema.AssetEvent(
+            resource_id=resource_id,
+            subscription_id=subscription_id,
+            event_type=event_type,
+            data=data if data is not None else {},
+        )
+    )
+    session.flush()
 
 
 def upsert_cost_snapshots(session: Session, rows: list[m.CostRow]) -> int:
