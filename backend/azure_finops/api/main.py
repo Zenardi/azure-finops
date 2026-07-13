@@ -481,6 +481,16 @@ def policy_execution_matches(execution_id: str) -> list[dict[str, Any]]:
         return repo.list_policy_matches(session, execution_id)
 
 
+@app.get("/api/governance/policy-health")
+def policy_health() -> list[dict[str, Any]]:
+    """Per-policy compliance & health aggregates (M3.4), across all subscriptions.
+
+    Empty list when no policy has executed yet — never an error.
+    """
+    with session_scope() as session:
+        return repo.policy_health(session)
+
+
 # --------------------------------------------------------------------------- #
 # Subscriptions (multi-subscription management)
 # --------------------------------------------------------------------------- #

@@ -167,6 +167,16 @@ The run history is exposed for review (M3.3): `GET /api/policy-executions`
 history with filter dropdowns and an expandable per-row drill-down into the matched
 resources.
 
+Those executions roll up into **per-policy compliance & health** (M3.4). The
+`v_policy_health` SQL view aggregates each policy's runs — across *every*
+subscription it ran in — into `total_executions`, succeeded/failed counts,
+`total_matches`, a rounded `success_rate`, and the `last_status` / `last_execution_at`
+of the most recent run (with `v_policy_compliance` giving the per-subscription
+grain). `GET /api/governance/policy-health` returns that list (empty until a policy
+has executed — never an error), and a provisioned **Policy Health & Compliance**
+Grafana dashboard visualises success rate, matches over time, and per-policy /
+per-subscription health.
+
 Two API endpoints expose the engine's offline surface (M1.3):
 
 - `POST /api/policies/validate` — dry-run schema-validate a policy `spec` (a
@@ -215,11 +225,14 @@ Then open:
   (pull-mode policy-run history with policy/subscription/status filters and a
   per-row drill-down into matched resources).
 - **Grafana** → http://localhost:3000 (anonymous viewer enabled) → *FinOps* folder
-  → **FinOps — Cost Overview** (cost by type / region / resource + daily trend).
+  → **FinOps — Cost Overview** (cost by type / region / resource + daily trend) and
+  **FinOps — Policy Health & Compliance** (per-policy success rate, matches over
+  time, and per-subscription compliance).
 - **API docs** → http://localhost:8000/docs (`/api/costs/summary`, `/api/recommendations`,
   `/api/policies` CRUD, `/api/policies/validate`, `/api/custodian/schema`,
   `/api/policies/{id}/dryrun`, `/api/policies/{id}/versions`,
-  `/api/policies/sync`, `/api/collections`, `/api/policy-executions`, …).
+  `/api/policies/sync`, `/api/collections`, `/api/policy-executions`,
+  `/api/governance/policy-health`, …).
 
 Run the backend on a schedule instead of one-shot: the `backend` service also
 supports `command: ["scheduler"]`.
@@ -291,7 +304,7 @@ make coverage  # full suite + 95% gate (spins an ephemeral Postgres via testcont
 make run-mock  # run pipeline locally against a Postgres at localhost:5432
 ```
 
-**Tests:** 243 tests, **~99% line coverage** (gate at 95%, enforced in CI —
+**Tests:** 250 tests, **~99% line coverage** (gate at 95%, enforced in CI —
 `.github/workflows/ci.yml`). Live-Azure code paths are covered via injected fake
 clients; the DB/API/orchestrator/remediation flows run against a throwaway
 PostgreSQL (testcontainers).

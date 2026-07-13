@@ -6,6 +6,24 @@ All notable changes to this project are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **M3.4 — Per-policy compliance & health metrics.** Aggregates the pull-mode
+  execution results (M3.1–M3.3) into per-policy health, surfaced via the API and a
+  Grafana dashboard (Stacklet-style policy-health reporting). New SQL views in
+  `storage/db.py`: `v_policy_health` (one row per policy that has executed at least
+  once — `total_executions`, `succeeded`/`failed`, `total_matches`, distinct
+  `subscriptions`, a rounded `success_rate`, and the `last_status` /
+  `last_execution_at` of the most recent run, **aggregated across every
+  subscription** the policy ran in) and `v_policy_compliance` (the finer per-(policy,
+  subscription) grain). Both `INNER JOIN` policies to executions, so a policy that
+  has never run is absent and the empty state is an empty list — never an error.
+  New `repo.policy_health` read helper and `GET /api/governance/policy-health`
+  endpoint. New provisioned Grafana dashboard `grafana/dashboards/policy-health.json`
+  (avg success rate / policies executed / total matches stats, resources-matched-over-
+  time timeseries, per-policy health table with a `success_rate` gauge, and a
+  compliance-by-subscription table). TDD: `test_policy_health.py` (7 tests) covers
+  the empty state, post-execution aggregates, the success-rate maths, multi-
+  subscription aggregation, never-run-policy absence, and the API happy/empty paths
+  — `db.py` and `api/main.py` at 100% coverage.
 - **M3.3 — Execution history API & UI.** The read/review surface over the pull-mode
   runs from M3.2. Three thin FastAPI endpoints over the M3.1 repository helpers:
   `GET /api/policy-executions` (newest-first, filterable by any combination of
