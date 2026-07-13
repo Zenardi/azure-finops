@@ -22,7 +22,8 @@ _TABLES = (
     "subscriptions, "
     "policies, policy_versions, policy_collections, "
     "collection_policies, installed_packs, policy_executions, policy_matches, "
-    "notification_templates, notification_channels, binding_notifications"
+    "notification_templates, notification_channels, binding_notifications, "
+    "roles, permissions, role_bindings"
 )
 
 

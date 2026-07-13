@@ -105,6 +105,16 @@ class Settings(BaseSettings):
     # policy actions may perform. Empty = no per-type restriction (any action allowed).
     allowed_actions: str = ""
 
+    # --- Access control (M11.1) ---
+    # When enabled, mutating API endpoints require the caller (X-Principal header) to
+    # hold the endpoint's permission via a role binding. Off by default so the API
+    # stays backward-compatible until roles/bindings are provisioned.
+    rbac_enabled: bool = False
+    # A principal auto-bound to the ``admin`` role when roles are seeded — the bootstrap
+    # identity that can then provision all other bindings. Empty = no bootstrap admin
+    # (bindings must be seeded out-of-band).
+    rbac_bootstrap_admin: str = ""
+
     # --- Runtime ---
     finops_mock: bool = True
     run_interval_seconds: int = 86400

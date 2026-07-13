@@ -6,6 +6,19 @@ All notable changes to this project are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **RBAC — roles, permissions & role bindings with endpoint enforcement (M11.1).**
+  New `roles` / `permissions` / `role_bindings` tables and an `azure_finops.authz.rbac`
+  module. A `require_permission(action)` FastAPI dependency guards every mutating
+  endpoint: it reads the caller from the `X-Principal` header, resolves the union of its
+  bound roles' permission grants, and enforces the route's action — **401** with no
+  principal, **403** without the permission (reads stay ungated). Three roles are seeded
+  idempotently — **admin** (`*`), **editor** (all write/run actions except RBAC admin),
+  **viewer** (read-only). Enforcement is gated by **`RBAC_ENABLED`** (off by default, so
+  the existing unauthenticated API is unchanged); **`RBAC_BOOTSTRAP_ADMIN`** names a
+  principal auto-bound to `admin` at seed time. New endpoints: `GET /api/authz/me`,
+  `GET /api/authz/roles`, `GET`/`POST`/`DELETE /api/authz/role-bindings` (writes require
+  `rbac:admin`). The permission check core (`has_permission` / `check_permission`) is
+  unit-tested in isolation.
 - **CIS Azure compliance pack + posture grouped by control id (M10.4).** A starter
   subset of the CIS Microsoft Azure Foundations Benchmark mapped to Cloud Custodian
   policies — a **directory pack** at `backend/azure_finops/packs/cis-azure/` that
