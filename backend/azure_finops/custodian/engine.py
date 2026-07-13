@@ -203,3 +203,18 @@ def run_policy(
 def get_schema(resource_type: str | None = None, runner: CustodianRunner | None = None) -> dict:
     """List Azure resource types (no arg) or return one type's schema."""
     return (runner if runner is not None else _get_default_runner()).schema(resource_type)
+
+
+def resolve_actions(spec: dict) -> list[dict]:
+    """Surface a policy's remediation actions, each normalized to a ``{"type": ...}`` dict.
+
+    Reads the first policy's ``actions`` list (c7n's shape) and normalizes each
+    entry (string shorthand or mapping) so the remediation executor can dispatch
+    them uniformly. Returns ``[]`` when the spec declares no policies/actions.
+    """
+    from ..remediation.executor import normalize_action
+
+    policies = spec.get("policies") or []
+    if not policies:
+        return []
+    return [normalize_action(a) for a in (policies[0].get("actions") or [])]
