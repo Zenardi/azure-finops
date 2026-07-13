@@ -57,7 +57,8 @@ OpenAI-compatible/local model). It runs fully offline with recorded fixtures
 | M6.3 | Real-time AssetDB updates — events stream create/update/delete into inventory | ✅ done |
 | M6.4 | Event config & status UI — EVENT_MODE_ENABLED gate + recent-events feed | ✅ done |
 | M7.1 | Custodian action executor — map tag/mark-for-op/stop/delete to Azure SDK | ✅ done |
-| M7.2 | Approval workflow — queue policy actions pending; approve/reject before enforce | 🚧 in review |
+| M7.2 | Approval workflow — queue policy actions pending; approve/reject before enforce | ✅ done |
+| M7.3 | Guardrails for policy actions — RG allow-list, exclude tag, action allow-list, dry-run default | 🚧 in review |
 
 Both tracks run fully offline with recorded fixtures (`FINOPS_MOCK=1`) — no Azure
 subscription required to see the pipeline, policies and dashboards working.
@@ -408,6 +409,25 @@ sets `rejected` and never executes. Only a `pending` action can be decided: deci
 **unknown** action is a `404`, an **already-decided** one a `409`. Three endpoints expose it:
 `POST /api/policy-matches/{id}/actions` (queue, pending), `POST /api/remediation/{id}/approve`,
 and `POST /api/remediation/{id}/reject`.
+
+**Guardrails for policy actions (M7.3).** Every policy-driven action is enforced
+**block-by-default** through `remediation/guardrails.check(resource_id, tags, settings,
+action=…)`. An action is allowed only when **all** guardrails pass:
+
+- **Resource-group allow-list** — the resource's RG must be in `ALLOWED_RESOURCE_GROUPS`
+  (`*` = any; empty = none allowed). A non-allow-listed RG is blocked with a reason.
+- **Exclude tag** — a resource carrying the configurable `EXCLUDE_TAG` (`finops:exclude`)
+  or the built-in `custodian:exclude` tag is **never actioned**.
+- **Action allow-list** — the attempted action *type* must be in the binding's allow-list
+  (falls back to the global `ALLOWED_ACTIONS`, e.g. `tag,stop`); empty = no per-type
+  restriction. An action type outside the list is blocked.
+- **Dry-run default** — `guardrails.default_dry_run(settings)` forces a safe **dry-run**
+  whenever guardrails are unset (remediation disabled, or no RG allow-listed) so an
+  approval previews rather than mutating.
+
+Guardrails hard-block only a *real* (non-dry-run) execution; a dry-run still previews and
+annotates the reason. The approval flow (M7.2) calls this on every approve, so a disallowed
+action comes back `blocked` and never reaches Azure.
 
 Two API endpoints expose the engine's offline surface (M1.3):
 

@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     remediation_enabled: bool = False
     allowed_resource_groups: str = ""
     exclude_tag: str = "finops:exclude"
+    # Comma-separated allow-list of Custodian action *types* (e.g. "tag,stop") that
+    # policy actions may perform. Empty = no per-type restriction (any action allowed).
+    allowed_actions: str = ""
 
     # --- Runtime ---
     finops_mock: bool = True
@@ -97,6 +100,10 @@ class Settings(BaseSettings):
             key, value = self.exclude_tag.split(":", 1)
             return key.strip(), value.strip()
         return None
+
+    @property
+    def allowed_actions_list(self) -> list[str]:
+        return [x.strip() for x in self.allowed_actions.split(",") if x.strip()]
 
 
 @lru_cache

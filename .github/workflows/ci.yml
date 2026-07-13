@@ -226,6 +226,31 @@ jobs:
           print(f"approval e2e OK: pending -> {approved['status']} (409 on re-approve); "
                 f"second action -> rejected; unknown -> 404")
           PY
+      - name: Smoke-test policy-action guardrails (M7.3)
+        run: |
+          set -euo pipefail
+          # Exercise the block-by-default guardrails against the deployed backend
+          # image: RG allow-list, exclude tags (finops + built-in custodian), the
+          # action-type allow-list, and the dry-run default. Pure functions — zero
+          # Azure calls, fully mock-safe.
+          docker compose exec -T backend python - <<'PY'
+          from azure_finops.config import Settings
+          from azure_finops.remediation import guardrails
+          rid = ("/subscriptions/s/resourceGroups/rg-app/providers/"
+                 "Microsoft.Compute/virtualMachines/vm-1")
+          cfg = Settings(remediation_enabled=True, allowed_resource_groups="rg-app")
+          assert guardrails.check(rid, {}, cfg).allowed, "allow-listed RG should pass"
+          assert not guardrails.check(rid, {}, Settings(allowed_resource_groups="rg-other")).allowed
+          assert not guardrails.check(rid, {"custodian": "exclude"},
+                                      Settings(allowed_resource_groups="*")).allowed
+          blocked = guardrails.check(rid, {}, Settings(allowed_resource_groups="*"),
+                                     action="stop", allowed_actions=["tag"])
+          assert not blocked.allowed and any("action type" in r for r in blocked.reasons), blocked
+          # Dry-run default: unset guardrails force a preview; fully configured permits real exec.
+          assert guardrails.default_dry_run(Settings(allowed_resource_groups="")) is True
+          assert guardrails.default_dry_run(cfg) is False
+          print("guardrails e2e OK: RG allow-list, exclude tag, action allow-list, dry-run default")
+          PY
       - name: Assert UI routes render (assets M4.5 + account groups M5.1 + bindings M5.4 + events M6.4, mock mode)
         run: |
           set -euo pipefail

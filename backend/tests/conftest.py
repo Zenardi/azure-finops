@@ -86,6 +86,7 @@ def _isolate_settings(monkeypatch, tmp_path):
         "LOG_ANALYTICS_WORKSPACE_ID",
         "REMEDIATION_ENABLED",
         "ALLOWED_RESOURCE_GROUPS",
+        "ALLOWED_ACTIONS",
         "AI_PROVIDER",
         "AI_BASE_URL",
         "AI_API_KEY",

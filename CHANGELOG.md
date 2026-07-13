@@ -47,6 +47,25 @@ All notable changes to this project are documented here. Format loosely follows
     via `--ignore-unfixed` while still failing on anything actionable.
 
 ### Added
+- **M7.3 — Guardrails for policy actions.** Enforces every policy-driven action
+  **block-by-default** through `remediation/guardrails.check(resource_id, tags,
+  settings, action=…, allowed_actions=…)`, which now evaluates three guardrails and
+  reports **all** failing reasons: the **resource-group allow-list**
+  (`ALLOWED_RESOURCE_GROUPS`, `*` = any, empty = none), an **exclude tag** (the
+  configurable `EXCLUDE_TAG` **plus** the built-in `custodian:exclude`, so an
+  excluded resource is never actioned), and a new **per-binding action-type
+  allow-list** (falls back to the global `ALLOWED_ACTIONS` setting; empty = no
+  restriction). New `guardrails.default_dry_run(settings)` forces a safe **dry-run**
+  whenever guardrails are unset (remediation disabled or no RG allow-listed); the
+  M7.2 approval flow now calls the guardrail with the attempted `action` type and
+  uses `default_dry_run`, so a disallowed action comes back `blocked` and never
+  reaches Azure. New config: `ALLOWED_ACTIONS` (+ `allowed_actions_list`). New
+  `backend/tests/test_policy_action_guardrails.py` (18 tests, TDD) covers the RG
+  allow-list, both exclude tags, the action allow-list (per-binding + settings
+  fallback, case-insensitive, empty = permit-any), the dry-run default, config
+  parsing, and DB-backed enforcement (an out-of-allow-list action is hard-blocked in
+  the approval flow); the CI e2e job asserts the guardrail blocks over HTTP.
+  New/changed code at **100%** coverage.
 - **M7.2 — Approval workflow for policy actions.** Gates policy-driven enforcement
   behind **human approval** — a matched resource's action is queued **pending** and
   never touches Azure until approved. `remediation/approval.queue_policy_action(...)`
