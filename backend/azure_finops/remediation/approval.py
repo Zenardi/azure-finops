@@ -213,11 +213,12 @@ def _execute_policy_action(session: Session, action: schema.RemediationAction) -
     resource = {"id": resource_id, "type": params.get("resource_type")}
     spec = params.get("action") or {"type": action.action_type}
 
-    # Global kill-switch forces dry-run — never touch Azure when disabled.
-    effective_dry_run = True if not settings.remediation_enabled else action.dry_run
+    # Unset guardrails (kill-switch off, or no RG allow-listed) force a dry-run —
+    # never touch Azure. An explicit dry_run request is likewise honoured.
+    effective_dry_run = action.dry_run or guardrails.default_dry_run(settings)
     res_obj = session.get(schema.Resource, resource_id) if resource_id else None
     tags = res_obj.tags if res_obj else {}
-    guard = guardrails.check(resource_id, tags, settings)
+    guard = guardrails.check(resource_id, tags, settings, action=action.action_type)
     guard_note = (
         "" if guard.allowed else " (guardrails would block: " + "; ".join(guard.reasons) + ")"
     )
