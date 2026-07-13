@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
 from .. import reporting
+from ..authz import rbac
 from ..config import get_settings
 from ..custodian import engine as custodian
 from ..custodian.engine import CustodianRunner
@@ -61,7 +62,9 @@ async def lifespan(_: FastAPI):
         from ..config import get_settings
 
         with session_scope() as session:
-            repo.ensure_default_subscription(session, get_settings())
+            settings = get_settings()
+            repo.ensure_default_subscription(session, settings)
+            rbac.seed_default_roles(session, bootstrap_admin=settings.rbac_bootstrap_admin or None)
     except Exception:  # noqa: BLE001 - endpoints will surface DB errors individually
         logger.exception("init_db failed at startup")
     yield
@@ -120,7 +123,10 @@ class Decision(BaseModel):
     actor: str | None = None
 
 
-@app.post("/api/recommendations/{rec_id}/decision")
+@app.post(
+    "/api/recommendations/{rec_id}/decision",
+    dependencies=[Depends(rbac.require_permission("recommendation:decide"))],
+)
 def decide_recommendation(rec_id: int, body: Decision) -> dict[str, Any]:
     status = {"approve": "approved", "reject": "rejected"}.get(body.decision)
     if status is None:
@@ -225,7 +231,11 @@ def get_policy(policy_id: int) -> dict[str, Any]:
     return _policy_view(policy)
 
 
-@app.post("/api/policies", status_code=201)
+@app.post(
+    "/api/policies",
+    status_code=201,
+    dependencies=[Depends(rbac.require_permission("policy:write"))],
+)
 def create_policy(
     body: PolicyCreate,
     runner: Annotated[CustodianRunner | None, Depends(get_custodian_runner)] = None,
@@ -247,7 +257,9 @@ def create_policy(
     return _policy_view(created)
 
 
-@app.put("/api/policies/{policy_id}")
+@app.put(
+    "/api/policies/{policy_id}", dependencies=[Depends(rbac.require_permission("policy:write"))]
+)
 def update_policy(
     policy_id: int,
     body: PolicyUpdate,
@@ -273,7 +285,9 @@ def update_policy(
     return _policy_view(updated)
 
 
-@app.delete("/api/policies/{policy_id}")
+@app.delete(
+    "/api/policies/{policy_id}", dependencies=[Depends(rbac.require_permission("policy:write"))]
+)
 def delete_policy(policy_id: int) -> dict[str, Any]:
     with session_scope() as session:
         ok = repo.delete_policy(session, policy_id)
@@ -282,7 +296,10 @@ def delete_policy(policy_id: int) -> dict[str, Any]:
     return {"id": policy_id, "deleted": True}
 
 
-@app.post("/api/policies/{policy_id}/enabled")
+@app.post(
+    "/api/policies/{policy_id}/enabled",
+    dependencies=[Depends(rbac.require_permission("policy:write"))],
+)
 def set_policy_enabled(policy_id: int, enabled: bool = True) -> dict[str, Any]:
     with session_scope() as session:
         updated = repo.set_policy_enabled(session, policy_id, enabled)
@@ -315,7 +332,7 @@ def diff_policy_versions(
     return diff
 
 
-@app.post("/api/policies/sync")
+@app.post("/api/policies/sync", dependencies=[Depends(rbac.require_permission("policy:write"))])
 def sync_policies(
     runner: Annotated[CustodianRunner | None, Depends(get_custodian_runner)] = None,
 ) -> dict[str, Any]:
@@ -327,7 +344,10 @@ def sync_policies(
     return gitops.sync_policies(runner=runner)
 
 
-@app.post("/api/policies/{policy_id}/dryrun")
+@app.post(
+    "/api/policies/{policy_id}/dryrun",
+    dependencies=[Depends(rbac.require_permission("policy:run"))],
+)
 def dryrun_policy(
     policy_id: int,
     subscription_id: str | None = None,
@@ -379,7 +399,11 @@ def list_collections() -> list[dict[str, Any]]:
         return repo.list_collections(session)
 
 
-@app.post("/api/collections", status_code=201)
+@app.post(
+    "/api/collections",
+    status_code=201,
+    dependencies=[Depends(rbac.require_permission("collection:write"))],
+)
 def create_collection(body: CollectionCreate) -> dict[str, Any]:
     name = body.name.strip()
     if not name:
@@ -400,7 +424,10 @@ def get_collection(collection_id: int) -> dict[str, Any]:
     return collection
 
 
-@app.delete("/api/collections/{collection_id}")
+@app.delete(
+    "/api/collections/{collection_id}",
+    dependencies=[Depends(rbac.require_permission("collection:write"))],
+)
 def delete_collection(collection_id: int) -> dict[str, Any]:
     """Delete a collection (and its memberships) — member policies are preserved."""
     with session_scope() as session:
@@ -410,7 +437,10 @@ def delete_collection(collection_id: int) -> dict[str, Any]:
     return {"id": collection_id, "deleted": True}
 
 
-@app.post("/api/collections/{collection_id}/policies/{policy_id}")
+@app.post(
+    "/api/collections/{collection_id}/policies/{policy_id}",
+    dependencies=[Depends(rbac.require_permission("collection:write"))],
+)
 def add_policy_to_collection(collection_id: int, policy_id: int) -> dict[str, Any]:
     with session_scope() as session:
         collection = repo.add_policy_to_collection(session, collection_id, policy_id)
@@ -419,7 +449,10 @@ def add_policy_to_collection(collection_id: int, policy_id: int) -> dict[str, An
     return collection
 
 
-@app.delete("/api/collections/{collection_id}/policies/{policy_id}")
+@app.delete(
+    "/api/collections/{collection_id}/policies/{policy_id}",
+    dependencies=[Depends(rbac.require_permission("collection:write"))],
+)
 def remove_policy_from_collection(collection_id: int, policy_id: int) -> dict[str, Any]:
     with session_scope() as session:
         collection = repo.remove_policy_from_collection(session, collection_id, policy_id)
@@ -448,7 +481,9 @@ def list_installed_packs() -> list[dict[str, Any]]:
         return repo.list_installed_packs(session)
 
 
-@app.post("/api/packs/{name}/install")
+@app.post(
+    "/api/packs/{name}/install", dependencies=[Depends(rbac.require_permission("pack:install"))]
+)
 def install_pack(
     name: str,
     runner: Annotated[CustodianRunner | None, Depends(get_custodian_runner)] = None,
@@ -469,7 +504,9 @@ def install_pack(
     return report
 
 
-@app.post("/api/packs/{name}/enabled")
+@app.post(
+    "/api/packs/{name}/enabled", dependencies=[Depends(rbac.require_permission("pack:install"))]
+)
 def set_pack_enabled(name: str, body: PackEnabled) -> dict[str, Any]:
     """Enable/disable an installed pack — toggles its member policies' binding eligibility."""
     with session_scope() as session:
@@ -477,6 +514,74 @@ def set_pack_enabled(name: str, body: PackEnabled) -> dict[str, Any]:
     if result is None:
         raise HTTPException(status_code=404, detail="pack not installed")
     return result
+
+
+# --------------------------------------------------------------------------- #
+# RBAC (M11.1) — roles, permissions, role bindings + the require_permission guard
+# --------------------------------------------------------------------------- #
+class RoleBindingIn(BaseModel):
+    principal: str
+    role: str
+
+
+@app.get("/api/authz/me")
+def authz_me(request: Request) -> dict[str, Any]:
+    """The caller's principal (``X-Principal``) and resolved permissions.
+
+    Unauthenticated callers get ``{principal: null, permissions: []}``. Always ``200``
+    so the UI can decide what to render without handling an error.
+    """
+    principal = rbac.principal_from_request(request)
+    permissions: list[str] = []
+    if principal is not None:
+        with session_scope() as session:
+            permissions = sorted(repo.resolve_permissions(session, principal))
+    return {
+        "principal": principal,
+        "permissions": permissions,
+        "rbac_enabled": get_settings().rbac_enabled,
+    }
+
+
+@app.get("/api/authz/roles")
+def list_roles() -> list[dict[str, Any]]:
+    """List all roles with their permission grants."""
+    with session_scope() as session:
+        return repo.list_roles(session)
+
+
+@app.get("/api/authz/role-bindings")
+def list_role_bindings(principal: str | None = None) -> list[dict[str, Any]]:
+    """List role bindings, optionally filtered to one ``?principal=``."""
+    with session_scope() as session:
+        return repo.list_role_bindings(session, principal=principal)
+
+
+@app.post(
+    "/api/authz/role-bindings",
+    status_code=201,
+    dependencies=[Depends(rbac.require_permission("rbac:admin"))],
+)
+def create_role_binding(body: RoleBindingIn) -> dict[str, Any]:
+    """Bind a principal to a role (idempotent). ``404`` for an unknown role."""
+    with session_scope() as session:
+        result = repo.assign_role(session, principal=body.principal, role_name=body.role)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"unknown role: {body.role}")
+    return result
+
+
+@app.delete(
+    "/api/authz/role-bindings",
+    dependencies=[Depends(rbac.require_permission("rbac:admin"))],
+)
+def delete_role_binding(principal: str, role: str) -> dict[str, Any]:
+    """Remove a principal's binding to a role. ``404`` if the binding is absent."""
+    with session_scope() as session:
+        ok = repo.remove_role_binding(session, principal, role)
+    if not ok:
+        raise HTTPException(status_code=404, detail="role binding not found")
+    return {"principal": principal, "role": role, "deleted": True}
 
 
 # --------------------------------------------------------------------------- #
@@ -488,7 +593,11 @@ def list_account_groups() -> list[dict[str, Any]]:
         return repo.list_account_groups(session)
 
 
-@app.post("/api/account-groups", status_code=201)
+@app.post(
+    "/api/account-groups",
+    status_code=201,
+    dependencies=[Depends(rbac.require_permission("accountgroup:write"))],
+)
 def create_account_group(body: AccountGroupCreate) -> dict[str, Any]:
     name = body.name.strip()
     if not name:
@@ -509,7 +618,10 @@ def get_account_group(group_id: int) -> dict[str, Any]:
     return group
 
 
-@app.delete("/api/account-groups/{group_id}")
+@app.delete(
+    "/api/account-groups/{group_id}",
+    dependencies=[Depends(rbac.require_permission("accountgroup:write"))],
+)
 def delete_account_group(group_id: int) -> dict[str, Any]:
     """Delete an account group (and its memberships) — member subscriptions are preserved."""
     with session_scope() as session:
@@ -519,7 +631,10 @@ def delete_account_group(group_id: int) -> dict[str, Any]:
     return {"id": group_id, "deleted": True}
 
 
-@app.post("/api/account-groups/{group_id}/subscriptions/{subscription_id}")
+@app.post(
+    "/api/account-groups/{group_id}/subscriptions/{subscription_id}",
+    dependencies=[Depends(rbac.require_permission("accountgroup:write"))],
+)
 def add_subscription_to_group(group_id: int, subscription_id: str) -> dict[str, Any]:
     with session_scope() as session:
         group = repo.add_subscription_to_group(session, group_id, subscription_id)
@@ -528,7 +643,10 @@ def add_subscription_to_group(group_id: int, subscription_id: str) -> dict[str, 
     return group
 
 
-@app.delete("/api/account-groups/{group_id}/subscriptions/{subscription_id}")
+@app.delete(
+    "/api/account-groups/{group_id}/subscriptions/{subscription_id}",
+    dependencies=[Depends(rbac.require_permission("accountgroup:write"))],
+)
 def remove_subscription_from_group(group_id: int, subscription_id: str) -> dict[str, Any]:
     with session_scope() as session:
         group = repo.remove_subscription_from_group(session, group_id, subscription_id)
@@ -546,7 +664,11 @@ def list_bindings() -> list[dict[str, Any]]:
         return repo.list_bindings(session)
 
 
-@app.post("/api/bindings", status_code=201)
+@app.post(
+    "/api/bindings",
+    status_code=201,
+    dependencies=[Depends(rbac.require_permission("binding:write"))],
+)
 def create_binding(body: BindingIn) -> dict[str, Any]:
     with session_scope() as session:
         try:
@@ -575,7 +697,9 @@ def get_binding(binding_id: int) -> dict[str, Any]:
     return binding
 
 
-@app.put("/api/bindings/{binding_id}")
+@app.put(
+    "/api/bindings/{binding_id}", dependencies=[Depends(rbac.require_permission("binding:write"))]
+)
 def update_binding(binding_id: int, body: BindingUpdate) -> dict[str, Any]:
     changes = body.model_dump(exclude_unset=True)
     with session_scope() as session:
@@ -588,7 +712,9 @@ def update_binding(binding_id: int, body: BindingUpdate) -> dict[str, Any]:
     return binding
 
 
-@app.delete("/api/bindings/{binding_id}")
+@app.delete(
+    "/api/bindings/{binding_id}", dependencies=[Depends(rbac.require_permission("binding:write"))]
+)
 def delete_binding(binding_id: int) -> dict[str, Any]:
     with session_scope() as session:
         ok = repo.delete_binding(session, binding_id)
@@ -597,7 +723,9 @@ def delete_binding(binding_id: int) -> dict[str, Any]:
     return {"id": binding_id, "deleted": True}
 
 
-@app.post("/api/bindings/{binding_id}/run")
+@app.post(
+    "/api/bindings/{binding_id}/run", dependencies=[Depends(rbac.require_permission("binding:run"))]
+)
 def run_binding_endpoint(
     binding_id: int,
     runner: Annotated[CustodianRunner | None, Depends(get_custodian_runner)] = None,
@@ -700,7 +828,7 @@ def runs(limit: int = 20) -> list[dict[str, Any]]:
         return repo.list_runs(session, limit=limit)
 
 
-@app.post("/api/runs")
+@app.post("/api/runs", dependencies=[Depends(rbac.require_permission("run:trigger"))])
 def trigger_run(mock: bool = False, subscription_id: str | None = None) -> dict[str, Any]:
     """Trigger a pipeline run. With no ``subscription_id`` this fans out across
     every enabled subscription; with one it runs just that subscription."""
@@ -891,7 +1019,9 @@ def list_subscriptions() -> list[dict[str, Any]]:
         return repo.list_subscriptions(session)
 
 
-@app.post("/api/subscriptions")
+@app.post(
+    "/api/subscriptions", dependencies=[Depends(rbac.require_permission("subscription:write"))]
+)
 def upsert_subscription(body: SubscriptionIn) -> dict[str, Any]:
     sub_id = body.subscription_id.strip()
     if not sub_id or not body.display_name.strip():
@@ -908,7 +1038,10 @@ def upsert_subscription(body: SubscriptionIn) -> dict[str, Any]:
         )
 
 
-@app.delete("/api/subscriptions/{subscription_id}")
+@app.delete(
+    "/api/subscriptions/{subscription_id}",
+    dependencies=[Depends(rbac.require_permission("subscription:write"))],
+)
 def delete_subscription(subscription_id: str) -> dict[str, Any]:
     with session_scope() as session:
         ok = repo.delete_subscription(session, subscription_id)
@@ -917,7 +1050,10 @@ def delete_subscription(subscription_id: str) -> dict[str, Any]:
     return {"subscription_id": subscription_id, "deleted": True}
 
 
-@app.post("/api/subscriptions/{subscription_id}/default")
+@app.post(
+    "/api/subscriptions/{subscription_id}/default",
+    dependencies=[Depends(rbac.require_permission("subscription:write"))],
+)
 def set_default_subscription(subscription_id: str) -> dict[str, Any]:
     with session_scope() as session:
         ok = repo.set_default_subscription(session, subscription_id)
@@ -926,7 +1062,10 @@ def set_default_subscription(subscription_id: str) -> dict[str, Any]:
     return {"subscription_id": subscription_id, "is_default": True}
 
 
-@app.post("/api/subscriptions/{subscription_id}/test")
+@app.post(
+    "/api/subscriptions/{subscription_id}/test",
+    dependencies=[Depends(rbac.require_permission("subscription:write"))],
+)
 def test_subscription(subscription_id: str) -> dict[str, Any]:
     """Verify the subscription's credential can reach Azure and see the sub."""
     from ..azure.connectivity import check_connection
@@ -945,7 +1084,10 @@ def test_subscription(subscription_id: str) -> dict[str, Any]:
     return check_connection(rec.subscription_id, credential=credential)
 
 
-@app.post("/api/recommendations/{rec_id}/remediate")
+@app.post(
+    "/api/recommendations/{rec_id}/remediate",
+    dependencies=[Depends(rbac.require_permission("remediation:approve"))],
+)
 def remediate(rec_id: int, dry_run: bool = True, actor: str | None = None) -> dict[str, Any]:
     with session_scope() as session:
         try:
@@ -973,7 +1115,10 @@ class QueueActionRequest(BaseModel):
     dry_run: bool = False
 
 
-@app.post("/api/policy-matches/{match_id}/actions")
+@app.post(
+    "/api/policy-matches/{match_id}/actions",
+    dependencies=[Depends(rbac.require_permission("remediation:approve"))],
+)
 def queue_policy_action(match_id: int, body: QueueActionRequest) -> dict[str, Any]:
     """Queue a matched resource's action as **pending** approval — never executes."""
     with session_scope() as session:
@@ -987,7 +1132,10 @@ def queue_policy_action(match_id: int, body: QueueActionRequest) -> dict[str, An
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/api/remediation/{action_id}/approve")
+@app.post(
+    "/api/remediation/{action_id}/approve",
+    dependencies=[Depends(rbac.require_permission("remediation:approve"))],
+)
 def approve_remediation(action_id: int, actor: str | None = None) -> dict[str, Any]:
     """Approve a pending action → guarded execution. 404 unknown, 409 already-decided."""
     with session_scope() as session:
@@ -999,7 +1147,10 @@ def approve_remediation(action_id: int, actor: str | None = None) -> dict[str, A
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@app.post("/api/remediation/{action_id}/reject")
+@app.post(
+    "/api/remediation/{action_id}/reject",
+    dependencies=[Depends(rbac.require_permission("remediation:approve"))],
+)
 def reject_remediation(action_id: int, actor: str | None = None) -> dict[str, Any]:
     """Reject a pending action — never executes. 404 unknown, 409 already-decided."""
     with session_scope() as session:
@@ -1020,7 +1171,11 @@ def list_notification_channels() -> list[dict[str, Any]]:
         return repo.list_notification_channels(session)
 
 
-@app.post("/api/notification-channels", status_code=201)
+@app.post(
+    "/api/notification-channels",
+    status_code=201,
+    dependencies=[Depends(rbac.require_permission("notification:write"))],
+)
 def create_notification_channel(body: NotificationChannelIn) -> dict[str, Any]:
     if body.transport not in KNOWN_TRANSPORTS:
         raise HTTPException(status_code=400, detail=f"unknown transport '{body.transport}'")
@@ -1049,7 +1204,10 @@ def get_notification_channel(channel_id: int) -> dict[str, Any]:
     return channel
 
 
-@app.put("/api/notification-channels/{channel_id}")
+@app.put(
+    "/api/notification-channels/{channel_id}",
+    dependencies=[Depends(rbac.require_permission("notification:write"))],
+)
 def update_notification_channel(channel_id: int, body: NotificationChannelUpdate) -> dict[str, Any]:
     changes = body.model_dump(exclude_unset=True)
     if "transport" in changes and changes["transport"] not in KNOWN_TRANSPORTS:
@@ -1061,7 +1219,10 @@ def update_notification_channel(channel_id: int, body: NotificationChannelUpdate
     return channel
 
 
-@app.delete("/api/notification-channels/{channel_id}")
+@app.delete(
+    "/api/notification-channels/{channel_id}",
+    dependencies=[Depends(rbac.require_permission("notification:write"))],
+)
 def delete_notification_channel(channel_id: int) -> dict[str, Any]:
     with session_scope() as session:
         ok = repo.delete_notification_channel(session, channel_id)
@@ -1076,7 +1237,11 @@ def list_notification_templates() -> list[dict[str, Any]]:
         return repo.list_notification_templates(session)
 
 
-@app.post("/api/notification-templates", status_code=201)
+@app.post(
+    "/api/notification-templates",
+    status_code=201,
+    dependencies=[Depends(rbac.require_permission("notification:write"))],
+)
 def create_notification_template(body: NotificationTemplateIn) -> dict[str, Any]:
     try:
         with session_scope() as session:
@@ -1101,7 +1266,10 @@ def get_notification_template(template_id: int) -> dict[str, Any]:
     return template
 
 
-@app.put("/api/notification-templates/{template_id}")
+@app.put(
+    "/api/notification-templates/{template_id}",
+    dependencies=[Depends(rbac.require_permission("notification:write"))],
+)
 def update_notification_template(
     template_id: int, body: NotificationTemplateUpdate
 ) -> dict[str, Any]:
@@ -1113,7 +1281,10 @@ def update_notification_template(
     return template
 
 
-@app.delete("/api/notification-templates/{template_id}")
+@app.delete(
+    "/api/notification-templates/{template_id}",
+    dependencies=[Depends(rbac.require_permission("notification:write"))],
+)
 def delete_notification_template(template_id: int) -> dict[str, Any]:
     with session_scope() as session:
         ok = repo.delete_notification_template(session, template_id)
@@ -1128,7 +1299,11 @@ def list_binding_notifications(binding_id: int) -> list[dict[str, Any]]:
         return repo.list_binding_notifications(session, binding_id)
 
 
-@app.post("/api/bindings/{binding_id}/notifications", status_code=201)
+@app.post(
+    "/api/bindings/{binding_id}/notifications",
+    status_code=201,
+    dependencies=[Depends(rbac.require_permission("notification:write"))],
+)
 def create_binding_notification(binding_id: int, body: BindingNotificationIn) -> dict[str, Any]:
     with session_scope() as session:
         try:
@@ -1145,7 +1320,10 @@ def create_binding_notification(binding_id: int, body: BindingNotificationIn) ->
     return link
 
 
-@app.delete("/api/bindings/{binding_id}/notifications/{notification_id}")
+@app.delete(
+    "/api/bindings/{binding_id}/notifications/{notification_id}",
+    dependencies=[Depends(rbac.require_permission("notification:write"))],
+)
 def delete_binding_notification(binding_id: int, notification_id: int) -> dict[str, Any]:
     with session_scope() as session:
         ok = repo.delete_binding_notification(session, notification_id)

@@ -71,7 +71,8 @@ OpenAI-compatible/local model). It runs fully offline with recorded fixtures
 | M10.1 | Policy packs — installable, versioned bundles of curated policies that materialize into a collection | ✅ done |
 | M10.2 | Cost governance pack — FinOps heuristics as c7n policies (idle VMs, orphan disks/IPs, oversized VMs, untagged) | ✅ done |
 | M10.3 | Security & tagging pack — public-IP exposure, permissive NSG, required tags, unencrypted disks (Security Baseline) | ✅ done |
-| M10.4 | CIS Azure compliance pack — CIS controls mapped to c7n policies; posture grouped by control id (CIS Azure) | 🚧 in review |
+| M10.4 | CIS Azure compliance pack — CIS controls mapped to c7n policies; posture grouped by control id (CIS Azure) | ✅ done |
+| M11.1 | RBAC model — roles/permissions/role-bindings + a `require_permission` guard on mutating endpoints | 🚧 in review |
 
 Both tracks run fully offline with recorded fixtures (`FINOPS_MOCK=1`) — no Azure
 subscription required to see the pipeline, policies and dashboards working.
@@ -345,6 +346,20 @@ excluded from `by_control`. The mapping:
 | 6.1 | `cis-6-1-nsg-restrict-rdp` | `azure.networksecuritygroup` | RDP (3389) not open to `0.0.0.0/0` |
 | 6.2 | `cis-6-2-nsg-restrict-ssh` | `azure.networksecuritygroup` | SSH (22) not open to `0.0.0.0/0` |
 | 7.3 | `cis-7-3-disk-cmk-encryption` | `azure.disk` | Disks encrypted with a customer-managed key |
+
+**RBAC (M11.1).** Role-based access control guards mutating endpoints. Three tables —
+`roles`, `permissions` (action grants per role), `role_bindings` (principal → role) —
+back three seeded roles: **admin** (`*`, all actions), **editor** (all write/run
+actions except RBAC administration), and **viewer** (read-only). A
+`require_permission("policy:write")`-style FastAPI dependency reads the caller from the
+`X-Principal` header, resolves the union of its bound roles' permissions, and enforces
+the route's action — **401** with no principal, **403** without the permission; reads
+stay ungated. Enforcement is gated by **`RBAC_ENABLED`** (off by default, so the
+existing unauthenticated API is unchanged); `RBAC_BOOTSTRAP_ADMIN` names a principal
+auto-bound to `admin` at seed time so a fresh deployment can provision every other
+binding. Manage it via `GET /api/authz/me` (your permissions), `GET /api/authz/roles`,
+and `GET`/`POST`/`DELETE /api/authz/role-bindings` (writes require `rbac:admin`).
+Identity is a plain header today; an SSO subject replaces it in M11.3.
 
 **AssetDB (M4.1).** Every pipeline run also populates a queryable, near-real-time
 asset inventory (à la Stacklet's AssetDB). The `assets` table is a richer superset

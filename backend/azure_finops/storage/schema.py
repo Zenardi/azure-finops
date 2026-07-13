@@ -172,6 +172,60 @@ class InstalledPack(Base):
     )
 
 
+class Role(Base):
+    """A named RBAC role (M11.1) — e.g. ``admin`` / ``editor`` / ``viewer``.
+
+    A role owns a set of :class:`Permission` grants (action strings) and is assigned
+    to principals via :class:`RoleBinding`. The default roles are seeded idempotently
+    at startup; deleting a role cascades its permissions and bindings away.
+    """
+
+    __tablename__ = "roles"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Permission(Base):
+    """One action a role may perform (M11.1) — a ``resource:verb`` string.
+
+    ``action`` is an opaque permission token (e.g. ``policy:write``); the sentinel
+    ``*`` grants everything (held by ``admin``). ``(role_id, action)`` is unique so a
+    role never carries a duplicate grant. Rows cascade-delete with the role.
+    """
+
+    __tablename__ = "permissions"
+    __table_args__ = (UniqueConstraint("role_id", "action", name="uq_role_permission"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    role_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("roles.id", ondelete="CASCADE"), index=True
+    )
+    action: Mapped[str] = mapped_column(String(64))
+
+
+class RoleBinding(Base):
+    """Assigns a role to a principal (M11.1) — the subject → role edge.
+
+    ``principal`` is the caller identity (an ``X-Principal`` header today; an SSO
+    subject once M11.3 lands). A principal may hold several roles; their permissions
+    union. ``(principal, role_id)`` is unique so a binding is created at most once.
+    Rows cascade-delete with the role.
+    """
+
+    __tablename__ = "role_bindings"
+    __table_args__ = (UniqueConstraint("principal", "role_id", name="uq_principal_role"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    principal: Mapped[str] = mapped_column(String(256), index=True)
+    role_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("roles.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class PolicyExecution(Base):
     """One scheduled/triggered run of a policy and its outcome (M3.1).
 

@@ -755,6 +755,123 @@ def set_pack_enabled(session: Session, name: str, enabled: bool) -> dict[str, An
 
 
 # --------------------------------------------------------------------------- #
+# RBAC: roles, permissions, role bindings (M11.1)
+# --------------------------------------------------------------------------- #
+def _role_permissions(session: Session, role_id: int) -> list[str]:
+    rows = (
+        session.query(schema.Permission.action)
+        .filter(schema.Permission.role_id == role_id)
+        .order_by(schema.Permission.action.asc())
+        .all()
+    )
+    return [r[0] for r in rows]
+
+
+def _role_public(session: Session, rec: schema.Role) -> dict[str, Any]:
+    return {
+        "id": rec.id,
+        "name": rec.name,
+        "description": rec.description,
+        "permissions": _role_permissions(session, rec.id),
+    }
+
+
+def get_role_by_name(session: Session, name: str) -> schema.Role | None:
+    return session.query(schema.Role).filter(schema.Role.name == name).one_or_none()
+
+
+def upsert_role(
+    session: Session, *, name: str, description: str | None, permissions: list[str]
+) -> dict[str, Any]:
+    """Create or update a role and set its permission grants (idempotent).
+
+    The role's permissions are replaced with the supplied set — re-seeding the same
+    definition is a no-op and never duplicates grants.
+    """
+    rec = get_role_by_name(session, name)
+    if rec is None:
+        rec = schema.Role(name=name, description=description)
+        session.add(rec)
+        session.flush()
+    else:
+        rec.description = description
+    desired = set(permissions)
+    existing = set(_role_permissions(session, rec.id))
+    for action in desired - existing:
+        session.add(schema.Permission(role_id=rec.id, action=action))
+    for action in existing - desired:
+        session.query(schema.Permission).filter(
+            schema.Permission.role_id == rec.id, schema.Permission.action == action
+        ).delete()
+    session.flush()
+    return _role_public(session, rec)
+
+
+def list_roles(session: Session) -> list[dict[str, Any]]:
+    recs = session.query(schema.Role).order_by(schema.Role.name.asc()).all()
+    return [_role_public(session, r) for r in recs]
+
+
+def assign_role(session: Session, *, principal: str, role_name: str) -> dict[str, Any] | None:
+    """Bind ``principal`` to ``role_name`` (idempotent). ``None`` if the role is unknown."""
+    role = get_role_by_name(session, role_name)
+    if role is None:
+        return None
+    existing = (
+        session.query(schema.RoleBinding)
+        .filter(
+            schema.RoleBinding.principal == principal,
+            schema.RoleBinding.role_id == role.id,
+        )
+        .one_or_none()
+    )
+    if existing is None:
+        session.add(schema.RoleBinding(principal=principal, role_id=role.id))
+        session.flush()
+    return {"principal": principal, "role": role_name}
+
+
+def remove_role_binding(session: Session, principal: str, role_name: str) -> bool:
+    role = get_role_by_name(session, role_name)
+    if role is None:
+        return False
+    deleted = (
+        session.query(schema.RoleBinding)
+        .filter(
+            schema.RoleBinding.principal == principal,
+            schema.RoleBinding.role_id == role.id,
+        )
+        .delete()
+    )
+    session.flush()
+    return bool(deleted)
+
+
+def list_role_bindings(session: Session, principal: str | None = None) -> list[dict[str, Any]]:
+    query = (
+        session.query(schema.RoleBinding.principal, schema.Role.name)
+        .join(schema.Role, schema.Role.id == schema.RoleBinding.role_id)
+        .order_by(schema.RoleBinding.principal.asc(), schema.Role.name.asc())
+    )
+    if principal is not None:
+        query = query.filter(schema.RoleBinding.principal == principal)
+    return [{"principal": p, "role": r} for p, r in query.all()]
+
+
+def resolve_permissions(session: Session, principal: str) -> set[str]:
+    """The union of all action grants a principal holds across its bound roles."""
+    rows = (
+        session.query(schema.Permission.action)
+        .join(schema.Role, schema.Role.id == schema.Permission.role_id)
+        .join(schema.RoleBinding, schema.RoleBinding.role_id == schema.Role.id)
+        .filter(schema.RoleBinding.principal == principal)
+        .distinct()
+        .all()
+    )
+    return {r[0] for r in rows}
+
+
+# --------------------------------------------------------------------------- #
 # Account groups (M5.1) — many-to-many grouping of subscriptions
 # --------------------------------------------------------------------------- #
 def _account_group_public(session: Session, rec: schema.AccountGroup) -> dict[str, Any]:
