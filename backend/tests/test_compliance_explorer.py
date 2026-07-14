@@ -186,4 +186,7 @@ def test_compliance_empty_state(db) -> None:
 # --------------------------------------------------------------------------- #
 def test_nav_includes_compliance_link() -> None:
     nav = (_FRONTEND / "components" / "Nav.tsx").read_text()
-    assert 'href="/compliance"' in nav
+    # Nav is data-driven: links live in the GROUPS array as `href: "/compliance"`
+    # and render via <Link href={item.href}>. Match the route path itself rather
+    # than the old inline JSX-attribute syntax.
+    assert '"/compliance"' in nav
