@@ -1,8 +1,7 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import AuthGate from "./components/AuthGate";
-import Nav from "./components/Nav";
+import AppShell from "./components/AppShell";
 
 export const metadata: Metadata = {
   title: "CloudWarden",
@@ -13,10 +12,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <Nav />
-        <main className="container">
-          <AuthGate>{children}</AuthGate>
-        </main>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );
