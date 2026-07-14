@@ -1,0 +1,192 @@
+# 7 · Governance-as-Code (Policies)
+
+The platform embeds **Cloud Custodian (`c7n`)** as its policy engine. Policies are
+authored as `c7n`-style specs, validated offline, versioned in the database, and
+executed against your accounts in three modes.
+
+## The policy spec
+
+A policy is a `c7n` document: a resource type + filters + actions. Minimal
+detection-only example (flag VMs missing an `Environment` tag):
+
+```yaml
+policies:
+  - name: tag-compliance-vms-require-environment
+    resource: azure.vm
+    description: Virtual machines must carry an Environment tag.
+    filters:
+      - type: value
+        key: tags.Environment
+        value: absent
+```
+
+With an action (tag matched resources):
+
+```yaml
+policies:
+  - name: mark-idle-vms
+    resource: azure.vm
+    filters:
+      - type: value
+        key: tags.Environment
+        value: production
+    actions:
+      - type: tag
+        tag: reviewed
+        value: "true"
+```
+
+Resource types are cloud-prefixed: `azure.vm`, `aws.s3`, `gcp.bucket`, etc. Browse
+what's available and each type's filters/actions:
+
+```bash
+GET /api/custodian/schema                    # list all resource types
+GET /api/custodian/schema?resource_type=azure.vm   # filters + actions for one
+```
+
+## Authoring policies
+
+**In the UI:** the **Policies** page has an editor with inline validation, an
+enabled toggle, and version history with a diff viewer.
+
+**Via API:**
+
+```bash
+# Validate a spec without saving (never persists)
+POST /api/policies/validate      { "spec": { ...c7n... } }   → { valid, errors }
+
+# Create (validate-on-write; 422 if invalid, 409 on duplicate name)
+POST /api/policies               { name, resource_type, spec, description, source }
+
+# Update (re-validates), delete, enable/disable
+PUT    /api/policies/{id}
+DELETE /api/policies/{id}
+POST   /api/policies/{id}/enabled?enabled=true
+
+# Version history + field-by-field diff
+GET /api/policies/{id}/versions
+GET /api/policies/{id}/versions/diff?from_version=1&to_version=2
+```
+
+Every create/update writes an immutable new **version**; nothing is lost.
+
+## The three execution modes
+
+| Mode | When it runs | How to trigger |
+|------|--------------|----------------|
+| **Pull** | Scheduled / on-demand batch across a scope | binding run, scheduler, CLI |
+| **Push** | Ad-hoc, single policy, dry-run | `POST /api/policies/{id}/dryrun` |
+| **Event** | Real-time, on a cloud change event | `POST /api/events/azure` |
+
+### Push (dry-run one policy now)
+
+```bash
+POST /api/policies/{id}/dryrun?subscription_id=<id>
+# → { policy_name, subscription_id, dry_run:true, matched:N, resources:[...] }
+```
+
+Matches only — never takes actions. Great for testing a policy before wiring it up.
+
+### Pull (scheduled batch) — collections, account-groups, bindings
+
+Pull mode is organized around three grouping objects:
+
+- **Collection** — a named set of policies (many-to-many). Think "CIS-Azure" or
+  "Cost Hygiene".
+- **Account-group** — a named set of subscriptions/accounts (many-to-many). Think
+  "Production" or "Dev/Test".
+- **Binding** — attaches a collection to an account-group with execution config:
+  `schedule` (cron; empty = manual only), `mode`, `dry_run`, `enabled`.
+
+**End-to-end setup:**
+
+```bash
+# 1. Create a collection and add policies
+POST   /api/collections                                  { name, description }
+POST   /api/collections/{cid}/policies/{policy_id}
+
+# 2. Create an account-group and add subscriptions
+POST   /api/account-groups                               { name, description }
+POST   /api/account-groups/{gid}/subscriptions/{subscription_id}
+
+# 3. Bind them (dry-run first!)
+POST   /api/bindings   { collection_id, account_group_id,
+                         schedule: "0 2 * * *", mode: "pull",
+                         dry_run: true, enabled: true }
+
+# 4. Run now (regardless of schedule)
+POST   /api/bindings/{bid}/run
+# → { binding_id, status, matched, executed, errors, ... }
+```
+
+Each run records a **PolicyExecution** (per policy × subscription) with status,
+matched-resource count, and actions taken — visible on the **Executions** page and
+via `GET /api/policy-executions`. A disabled binding returns `skipped`.
+
+Run **all** bindings/policies on their cadence with the scheduler
+(`POLICY_RUN_INTERVAL_SECONDS`) or the CLI:
+
+```bash
+docker compose exec backend python -m cloudwarden.cli run-policies --mock
+```
+
+### Event (real-time)
+
+Policies whose spec declares event mode participate in real-time enforcement when
+a matching cloud change arrives. See
+[12 · Real-Time Enforcement](12-real-time-enforcement.md).
+
+## Policy packs
+
+Pre-built, versioned bundles of policies (e.g. tag-compliance, cost-hygiene,
+cis-azure). Installing a pack validates and materializes its policies into a
+collection.
+
+```bash
+GET  /api/packs                       # available packs
+GET  /api/packs/installed             # installed + version/enabled
+POST /api/packs/{name}/install        # → { installed_policies, collection_id, errors }
+POST /api/packs/{name}/enabled        { enabled: true|false }
+```
+
+Install is idempotent — re-installing the same version is a no-op. After install,
+bind the resulting collection to an account-group.
+
+## GitOps sync
+
+Keep policies in a Git repo and sync them in. Configure:
+
+```
+GITOPS_REPO_URL=https://github.com/org/finops-policies.git   # empty disables
+GITOPS_BRANCH=main
+GITOPS_POLICY_PATH=policies
+```
+
+Trigger a sync (also runnable on the scheduler):
+
+```bash
+POST /api/policies/sync
+# → { ok, added, updated, unchanged, skipped, errors }
+```
+
+Sync discovers `*.yml`/`*.yaml`/`*.json` under `GITOPS_POLICY_PATH`, validates each
+through the engine, and upserts by policy **name** (idempotent — unchanged policies
+don't bump their version). **Invalid files are skipped and reported, never fatal**,
+so you can iterate the repo safely. The endpoint never 500s on git/validation
+failure.
+
+## Posture & health
+
+Governance produces two rollups (both filterable by `?provider=`):
+
+- `GET /api/governance/posture` → totals + breakdowns `by_policy`,
+  `by_subscription`, `by_collection`, `by_control`, `by_provider` (compliant vs
+  non-compliant, violation counts).
+- `GET /api/governance/execution-health` → success rate, avg duration, last run —
+  `by_policy`, `by_binding`, `by_provider`.
+- `GET /api/governance/policies/{id}/matches` → resources currently flagged by a
+  policy (the Compliance page drill-down).
+- `GET /api/governance/export?format=csv|json` → stream governance evidence.
+
+See these visualized in the **Compliance** page and the Grafana *Posture* /
+*Execution Health* dashboards ([13](13-dashboards-grafana.md)).
