@@ -1,26 +1,49 @@
-# Azure Governance-as-Code & FinOps
+# CloudWarden
 
-[![CI](https://github.com/Zenardi/azure-finops/actions/workflows/ci.yml/badge.svg)](https://github.com/Zenardi/azure-finops/actions/workflows/ci.yml)
+**Multi-cloud governance-as-code & FinOps.** Guard your policy posture and govern
+your cloud spend across Azure, AWS, and GCP from one control plane.
 
-**Cloud governance-as-code *and* FinOps for Azure, in one self-hostable stack.**
-Two pillars over a shared *collect → store → surface* backbone:
+[![CI](https://github.com/Zenardi/cloudwarden/actions/workflows/ci.yml/badge.svg)](https://github.com/Zenardi/cloudwarden/actions/workflows/ci.yml)
+
+**Overview Page**
+![overview](./docs/images/overview.png)
+
+**Grafana - Cost Overview Dashboard**
+![overview](./docs/images/grafana-cost-overview.png)
+
+**Grafana - Recommendation & Savings Dashboards**
+![overview](./docs/images/grafana-recommendation.png)
+
+
+**Multi-cloud governance-as-code *and* FinOps — Azure, AWS and GCP in one
+self-hostable stack.** Two pillars over a shared *collect → store → surface*
+backbone:
 
 - **Governance-as-code** (à la [Stacklet](https://stacklet.io/)), built on
-  **[Cloud Custodian](https://cloudcustodian.io/)** (`c7n` + `c7n-azure`): author,
-  validate, **version** and **GitOps-sync** policies, group them into
-  **collections**, **evaluate them on a schedule across every subscription** (pull
-  mode), and review the full **execution history** — which resources each policy
-  matched and how every run turned out.
+  **[Cloud Custodian](https://cloudcustodian.io/)** (`c7n`, with `c7n-azure` /
+  `c7n-gcp` provider plugins): onboard **Azure subscriptions, AWS accounts and
+  GCP projects**; author, validate, **version** and **GitOps-sync** policies,
+  group them into **collections**, **evaluate them on a schedule across every
+  account** (pull mode) or **react to change events in real time**, and review the
+  full **execution history**. A cross-cloud **AssetDB** tracks every resource
+  (config, relationships, change history), with **posture and execution-health
+  that filter and group by cloud provider** — one pane over every cloud.
 - **FinOps** cost & utilization optimization: visualize spend by
   **resource / type / region**, generate **AI-assisted right-sizing and shutdown
   recommendations** from CPU / RAM / I/O metrics, and — once approved — **execute
   guarded remediation**.
 
-Everything is pulled from **Azure Cost Management**, **Monitor**, **Resource Graph**
-and **Advisor**, persisted to **Postgres/TimescaleDB**, and surfaced on **Grafana**
-and a **Next.js** UI — with a **pluggable AI** layer (Anthropic by default; any
-OpenAI-compatible/local model). It runs fully offline with recorded fixtures
-(`FINOPS_MOCK=1`), so no Azure subscription is required to see it work.
+Governance and AssetDB span **Azure, AWS and GCP**; the FinOps cost/right-sizing
+pipeline is **Azure-first** today (AWS/GCP cost analytics are on the roadmap).
+Data comes from each cloud's native APIs (Azure: **Cost Management**, **Monitor**,
+**Resource Graph**, **Advisor**), is persisted to **Postgres/TimescaleDB**, and is
+surfaced on **Grafana** and a **Next.js** UI — with a **pluggable AI** layer
+(Anthropic by default; any OpenAI-compatible/local model). It runs fully offline
+with recorded fixtures (`FINOPS_MOCK=1`), so **no cloud credentials are required**
+to see it work.
+
+> 📖 New here? The full **[operational manual](docs/README.md)** covers setup,
+> every screen, multi-cloud onboarding, policies, dashboards and the API.
 
 ## Status
 
@@ -81,8 +104,8 @@ OpenAI-compatible/local model). It runs fully offline with recorded fixtures
 | M12.3 | GCP onboarding & execution — onboard GCP projects (Resource-Manager-validated), dry-run c7n gcp policies, ingest GCP resources into AssetDB tagged `provider='gcp'`; injectable clients (no live GCP in tests) | ✅ done |
 | M12.4 | Cross-cloud AssetDB & dashboards — asset queries, posture and execution-health filter/group by `provider`; UI + Grafana provider filter defaulting to all clouds (the single multi-cloud pane) | ✅ done |
 
-Both tracks run fully offline with recorded fixtures (`FINOPS_MOCK=1`) — no Azure
-subscription required to see the pipeline, policies and dashboards working.
+Both tracks run fully offline with recorded fixtures (`FINOPS_MOCK=1`) — no cloud
+credentials required to see the pipeline, policies and dashboards working.
 
 ## Dashboards & data model (Grafana)
 
@@ -233,7 +256,7 @@ and closes the execution `succeeded` (with `resources_matched` + the policy's
 declared `actions_taken`) or `failed` (with the error) — one policy's failure never
 aborts its siblings. `run_all_policies()` fans that across every enabled
 subscription with the same per-subscription isolation as the cost pipeline. It runs
-via `python -m azure_finops.cli run-policies [--mock]` and as a second APScheduler
+via `python -m cloudwarden.cli run-policies [--mock]` and as a second APScheduler
 job (`finops-policy-run`) on `POLICY_RUN_INTERVAL_SECONDS`, separate from the
 cost-pipeline `RUN_INTERVAL_SECONDS`.
 
@@ -299,7 +322,7 @@ scheduler writes a timestamped CSV to `APP_DATA_DIR` every
 flag).
 
 **Policy packs (M10.1).** Curated Cloud Custodian policies ship as installable,
-versioned **packs** — YAML under `azure_finops/packs/` (à la Stacklet's out-of-the-box
+versioned **packs** — YAML under `cloudwarden/packs/` (à la Stacklet's out-of-the-box
 packs), either a single `<name>.yaml` file or a `<slug>/` directory with a `pack.yaml`
 manifest. `GET /api/packs` lists what's available (name, version, policy count);
 `POST /api/packs/{name}/install` **validates every policy through the engine, then
@@ -314,7 +337,7 @@ runs). Single-file packs today: `cost-hygiene` (unattached disks, unassociated p
 IPs) and `tag-compliance` (Environment / CostCenter tag baselines).
 
 **Cost governance pack (M10.2).** The FinOps heuristics the app already computes,
-now expressed as c7n policies — a **directory pack** at `azure_finops/packs/cost/`
+now expressed as c7n policies — a **directory pack** at `cloudwarden/packs/cost/`
 (`pack.yaml` manifest + one `*.yml` per policy) that installs into a **Cost Governance**
 collection. Five policies: deallocated/stopped VMs (`cost-idle-vm-deallocated`),
 unattached disks (`cost-unattached-disk`), unassociated public IPs
@@ -327,7 +350,7 @@ running one, and the unattached-disk policy matches an `Unattached` disk but not
 attached one.
 
 **Security & tagging pack (M10.3).** A security-hygiene **directory pack** at
-`azure_finops/packs/security/` that installs into a **Security Baseline** collection.
+`cloudwarden/packs/security/` that installs into a **Security Baseline** collection.
 Four policies: internet-exposed public IPs (`security-public-ip-exposure`), permissive
 inbound NSG rules — Allow from `0.0.0.0/0` to SSH/RDP via c7n-azure's `ingress` filter
 (`security-nsg-permissive-inbound`), resources missing a mandated `Environment`/`Owner`
@@ -339,7 +362,7 @@ policy matches a resource missing a mandated tag (offline `match_resources`).
 
 **CIS Azure compliance pack (M10.4).** A starter subset of the CIS Microsoft Azure
 Foundations Benchmark mapped to c7n policies — a **directory pack** at
-`azure_finops/packs/cis-azure/` that installs into a **CIS Azure** collection. Each
+`cloudwarden/packs/cis-azure/` that installs into a **CIS Azure** collection. Each
 policy carries its CIS control id in `metadata.control_id`, and compliance posture
 (`GET /api/governance/posture`) gains a **`by_control`** rollup that groups
 compliant/non-compliant counts by control id (extracted from each policy's stored
@@ -414,7 +437,7 @@ it. The log is tamper-evident by construction: there is deliberately no update o
 path, in the repository or the API (mutating verbs on `/api/audit` are `405`).
 
 **Cloud provider abstraction (M12.1).** The engine, orchestrator and onboarding talk to
-a **`CloudProvider`** seam (`azure_finops.providers.base`) instead of Azure directly — the
+a **`CloudProvider`** seam (`cloudwarden.providers.base`) instead of Azure directly — the
 foundation for extending governance to AWS/GCP through Cloud Custodian. A name-keyed
 **registry** resolves providers: `providers.registry.get("azure")` returns the Azure
 implementation (`providers.azure.AzureProvider`), which owns c7n resource registration,
@@ -758,7 +781,7 @@ A stored policy can be **dry-run** against Azure (M1.4):
   `fixtures/custodian_policy_result.json`, so dry-runs are fully offline; no
   remediation action is ever executed.
 
-## Quickstart (mock mode, no Azure needed)
+## Quickstart (mock mode, no cloud needed)
 
 Prerequisites: Docker with Compose v2 (`docker compose`).
 
@@ -792,7 +815,9 @@ Then open:
 Run the backend on a schedule instead of one-shot: the `backend` service also
 supports `command: ["scheduler"]`.
 
-## Live mode (real Azure)
+## Live mode (real clouds)
+
+**Azure** (the full cost + governance pipeline):
 
 1. Create the read SP and assign **Reader + Cost Management Reader + Monitoring
    Reader** on the subscription (+ **Log Analytics Reader** for memory metrics).
@@ -805,22 +830,30 @@ For remediation (Phase 5), additionally set the write SP (`AZURE_REMEDIATION_*`)
 `REMEDIATION_ENABLED=true`, and `ALLOWED_RESOURCE_GROUPS`. Remediation defaults
 to **dry-run**; resources tagged `finops:exclude=true` are never touched.
 
-## Multiple subscriptions
+**AWS & GCP** (governance + AssetDB; cost analytics stay Azure-first). Onboard on
+the **Subscriptions** page or via the API — `POST /api/aws/accounts` (STS-validated)
+and `POST /api/gcp/projects` (Resource-Manager-validated) — then ingest their
+resources with the matching `…/ingest` endpoints. Set `AWS_*` / `GCP_*` in `.env`
+for live credentials (both fall back to ambient / default credentials). Full
+walkthrough: [docs/06 — Multi-Cloud Onboarding](docs/06-multi-cloud-onboarding.md).
 
-`AZURE_SUBSCRIPTION_ID` is seeded as the **default** subscription on first start.
-Add more on the **Subscriptions** page (or `POST /api/subscriptions`): each row
-can reuse the shared env service principal or carry its **own** tenant/client/
-secret (e.g. a different tenant). A run with no target (`make seed`, the
-scheduler, or `POST /api/runs`) **fans out across every enabled subscription**,
-one pipeline run each; the API also accepts `?subscription_id=…` to run just one.
-Per-subscription secrets are stored in Postgres (v1) — a Key Vault / column-
-encryption backing is the intended hardening step.
+## Multiple accounts (Azure · AWS · GCP)
+
+`AZURE_SUBSCRIPTION_ID` is seeded as the **default** account on first start. Add
+more — Azure subscriptions, AWS accounts, or GCP projects — on the **Subscriptions**
+page (or the onboarding APIs above); each carries its own `provider` and can reuse
+the shared env credentials or bring its **own**. A run with no target (`make seed`,
+the scheduler, or `POST /api/runs`) **fans out across every enabled account**, one
+pipeline run each; the API also accepts `?subscription_id=…` to run just one.
+**Account groups** + **bindings** then let a single collection of policies evaluate
+across a multi-cloud group. Per-account secrets are stored in Postgres (v1) — a Key
+Vault / column-encryption backing is the intended hardening step.
 
 ## Key configuration
 
 | Env | Purpose |
 |-----|---------|
-| `FINOPS_MOCK` | `1` = use fixtures (offline); `0` = call Azure |
+| `FINOPS_MOCK` | `1` = use fixtures (offline); `0` = call the real clouds |
 | `AI_PROVIDER` / `AI_MODEL` | `anthropic` (default `claude-opus-4-8`) or `openai` |
 | `AI_BASE_URL` | OpenAI-compatible endpoint for local models (Ollama/vLLM/LM Studio) |
 | `COST_LOOKBACK_DAYS` / `METRIC_LOOKBACK_DAYS` | analysis windows |
@@ -833,7 +866,7 @@ Full list: `.env.example`.
 ## Project layout
 
 ```
-backend/azure_finops/
+backend/cloudwarden/
   config.py auth.py resilience.py models.py orchestrator.py scheduler.py cli.py
   azure/       inventory.py cost.py metrics.py logs.py advisor.py context.py
   analysis/    (rollup/rules/idle/pricing/savings — Phase 2)
