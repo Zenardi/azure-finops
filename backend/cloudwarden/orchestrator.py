@@ -28,8 +28,8 @@ from .azure.context import AccountContext
 from .azure.cost import collect_cost
 from .azure.inventory import collect_inventory
 from .azure.logs import collect_memory
-from .azure.ml_compute import collect_ml_computes
 from .azure.metrics import collect_metrics
+from .azure.ml_compute import collect_ml_computes
 from .config import get_settings
 from .custodian import engine as custodian_engine
 from .models import AISummary, CostRow, PolicyMatch, ResourceRecord
