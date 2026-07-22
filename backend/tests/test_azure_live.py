@@ -252,7 +252,37 @@ def test_cost_live(monkeypatch) -> None:
     assert rows and rows[0].cost == 5.0
     assert rows[0].usage_date == dt.date(2026, 7, 12)
     assert {r.cost_type for r in rows} == {"Amortized", "Actual"}
+    # Every live row must carry the queried subscription — the Overview cloud filter
+    # joins cost → subscriptions.provider on it; unset, an Azure filter returns €0.
+    assert rows and all(r.subscription_id for r in rows)
     get_settings.cache_clear()
+
+
+def test_parse_response_stamps_subscription_id() -> None:
+    """Regression: live cost rows must be stamped with the subscription queried, or
+    the provider filter (subscription_id → subscriptions.provider) matches nothing."""
+    payload = {
+        "properties": {
+            "columns": [{"name": "Cost"}, {"name": "UsageDate"}, {"name": "ResourceId"}],
+            "rows": [[5.0, 20260712, _VM_RID.upper()]],
+        }
+    }
+    rows = cost._parse_response(payload, "Amortized", "sub-xyz")
+    assert rows and all(r.subscription_id == "sub-xyz" for r in rows)
+
+
+def test_query_body_clamps_lookback_to_api_limit() -> None:
+    """A large COST_LOOKBACK_DAYS must be clamped so the Cost Management daily
+    query never exceeds the ~1-year cap (which returns a bare 400)."""
+    from cloudwarden.azure.cost import _MAX_DAILY_LOOKBACK_DAYS, _query_body
+
+    body = _query_body(1000, "Amortized")
+    start = dt.date.fromisoformat(body["timePeriod"]["from"][:10])
+    assert (dt.date.today() - start).days == _MAX_DAILY_LOOKBACK_DAYS  # clamped, not 1000
+    # A normal lookback passes through unchanged.
+    body30 = _query_body(30, "Actual")
+    start30 = dt.date.fromisoformat(body30["timePeriod"]["from"][:10])
+    assert (dt.date.today() - start30).days == 30
 
 
 # --- logs (memory) ---
