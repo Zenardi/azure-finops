@@ -7,16 +7,117 @@ the resource.
 
 from __future__ import annotations
 
+import re
+
 from ..models import ActivitySignal, Recommendation, ResourceRecord
+
+# DevCenter dev-box definition SKUs encode the VM size, e.g.
+# "general_i_16c64gb512ssd_v2" → 16 vCPU / 64 GB. Pools whose definition is a large
+# size are right-sizing candidates. 16 vCPU is the largest common dev-box tier.
+_DEVBOX_VCPU_RE = re.compile(r"_(\d+)c\d+gb")
+_OVERSIZED_DEVBOX_VCPU = 16
+
+
+def _devbox_vcpu(sku: str | None) -> int | None:
+    """Parse the vCPU count out of a dev-box definition SKU name (None if unknown)."""
+    if not sku:
+        return None
+    m = _DEVBOX_VCPU_RE.search(sku)
+    return int(m.group(1)) if m else None
+
+
+# ML compute-instance states that mean "not usefully running": a failed provision
+# never became usable but can still leave a residual OS disk behind.
+_ML_FAILED_STATES = {"CreateFailed", "Failed"}
+
+
+def _ml_compute_rec(r: ResourceRecord, ws_monthly: float) -> Recommendation | None:
+    """Advisory rec for one ML compute target, or None if it's in a fine state.
+
+    ML compute bills per its VM size but Cost Management rolls that spend up to the
+    owning *workspace* (there is no per-compute cost row), so we can't isolate a
+    savings figure — every case is advisory (``est_monthly_savings=0``) with the
+    workspace's monthly cost carried as evidence context. Three wasteful shapes:
+    a running Compute Instance (no scale-to-zero — bills continuously), a failed
+    Compute Instance (delete the wreckage), and an AmlCompute cluster pinned to a
+    non-zero minimum node count (idle nodes bill between jobs).
+    """
+    cfg = r.config or {}
+    ctype = cfg.get("compute_type")
+    state = str(cfg.get("state") or "")
+    vm_size = cfg.get("vm_size") or r.sku or "its VM size"
+    evidence = {
+        "compute_type": ctype,
+        "state": state,
+        "vm_size": cfg.get("vm_size"),
+        "workspace_monthly": ws_monthly,
+    }
+    base = dict(
+        resource_id=r.resource_id,
+        category="idle_ml_compute",
+        current_sku=cfg.get("vm_size") or r.sku,
+        risk="medium",
+        est_monthly_savings=0.0,
+        source="heuristic",
+    )
+    if ctype == "ComputeInstance" and state in _ML_FAILED_STATES:
+        return Recommendation(
+            **base,
+            action="review_idle_resource",
+            confidence=0.6,
+            rationale=(
+                f"ML compute instance failed to provision (state {state}). It is not usable; "
+                f"delete it to clear the failed resource and any residual OS disk."
+            ),
+            caveats=["confirm it isn't mid-retry before deleting"],
+            evidence=evidence,
+        )
+    if ctype == "ComputeInstance" and state == "Running":
+        return Recommendation(
+            **base,
+            action="review_idle_resource",
+            confidence=0.4,
+            rationale=(
+                f"ML compute instance is running ({vm_size}) and bills continuously — compute "
+                f"instances do not scale to zero. If it isn't in active use, stop it or enable "
+                f"idle shutdown."
+            ),
+            caveats=["may be in active interactive use — confirm before stopping"],
+            evidence=evidence,
+        )
+    if ctype == "AmlCompute":
+        min_nodes = int(cfg.get("min_node_count") or 0)
+        if min_nodes > 0:
+            return Recommendation(
+                **base,
+                action="review_rightsizing",
+                confidence=0.5,
+                rationale=(
+                    f"ML compute cluster keeps a minimum of {min_nodes} node(s) always allocated "
+                    f"({vm_size}), which bills even when no job is running. Set the minimum node "
+                    f"count to 0 to scale to zero between jobs."
+                ),
+                caveats=["a warm minimum may be intentional to cut job start latency"],
+                evidence={**evidence, "min_node_count": min_nodes},
+            )
+    return None
 
 
 def detect_idle(
     resources: list[ResourceRecord], monthly_cost: dict[str, float]
 ) -> list[Recommendation]:
     recs: list[Recommendation] = []
+    # Map dev-box definition name -> SKU so a pool (which references its definition by
+    # name) can be assessed for right-sizing without a second lookup pass.
+    devbox_skus = {
+        r.name: ((r.config or {}).get("sku") or {}).get("name")
+        for r in resources
+        if r.type == "microsoft.devcenter/devcenters/devboxdefinitions"
+    }
     for r in resources:
         monthly = round(monthly_cost.get(r.resource_id, 0.0), 2)
         extra = r.extra or {}
+        cfg = r.config or {}
         if r.type == "microsoft.compute/disks" and extra.get("diskState") == "Unattached":
             recs.append(
                 Recommendation(
@@ -125,6 +226,95 @@ def detect_idle(
                     evidence={"power_state": r.power_state},
                 )
             )
+        elif r.type == "microsoft.devcenter/projects/pools":
+            # A DevCenter project pool bills for the dev boxes it hosts. Zero dev boxes
+            # = a pool paying for nothing; otherwise, a large dev-box definition is a
+            # right-sizing candidate (dev boxes are the dominant DevCenter cost).
+            count = int(cfg.get("devBoxCount") or 0)
+            if count == 0:
+                recs.append(
+                    Recommendation(
+                        resource_id=r.resource_id,
+                        category="idle_pool",
+                        action="review_idle_resource",
+                        current_sku=r.sku,
+                        risk="medium",
+                        confidence=0.6,
+                        est_monthly_savings=monthly,
+                        source="heuristic",
+                        rationale=(
+                            "DevCenter project pool hosts 0 dev boxes but still bills for "
+                            "its configuration. If it is unused, delete it."
+                        ),
+                        caveats=["confirm no planned dev-box assignments before deleting"],
+                        evidence={"devBoxCount": 0},
+                    )
+                )
+            else:
+                sku = devbox_skus.get(cfg.get("devBoxDefinitionName"))
+                vcpu = _devbox_vcpu(sku)
+                if vcpu and vcpu >= _OVERSIZED_DEVBOX_VCPU:
+                    # One dev-box size down roughly halves the per-vCPU compute rate, but
+                    # storage/licensing don't shrink — so estimate conservatively (~35%)
+                    # and keep it advisory (low confidence, heavy caveats).
+                    est = round(monthly * 0.35, 2)
+                    recs.append(
+                        Recommendation(
+                            resource_id=r.resource_id,
+                            category="oversized_pool",
+                            action="review_rightsizing",
+                            current_sku=sku,
+                            risk="low",
+                            confidence=0.4,
+                            est_monthly_savings=est,
+                            source="heuristic",
+                            rationale=(
+                                f"Dev boxes in this pool use a large {vcpu}-vCPU definition "
+                                f"({sku}). If the workload doesn't need it, a smaller size cuts "
+                                f"the hourly rate across all {count} dev boxes."
+                            ),
+                            caveats=[
+                                "estimate — validate against Dev Box pricing for the target size",
+                                "confirm developers don't rely on the larger size",
+                            ],
+                            evidence={"devBoxCount": count, "definitionSku": sku, "vcpu": vcpu},
+                        )
+                    )
+        elif r.type == "microsoft.documentdb/mongoclusters":
+            # Make Mongo (Cosmos DB for MongoDB vCore) clusters accountable. Free-tier
+            # clusters cost nothing to optimize, so only flag paid tiers for review;
+            # quantified idle detection (by connections/ops) is metric-based (Phase 3).
+            skus = [s.get("sku") for s in (cfg.get("nodeGroupSpecs") or []) if isinstance(s, dict)]
+            paid = [s for s in skus if s and str(s).lower() != "free"]
+            if paid and monthly >= 1.0:
+                recs.append(
+                    Recommendation(
+                        resource_id=r.resource_id,
+                        category="mongo_cluster",
+                        action="review_idle_resource",
+                        current_sku=str(paid[0]),
+                        risk="medium",
+                        confidence=0.4,
+                        est_monthly_savings=0.0,
+                        source="heuristic",
+                        rationale=(
+                            f"Paid Cosmos DB for MongoDB cluster (tier {paid[0]}). Review it "
+                            f"for right-sizing or idle usage — a lower tier, disabling HA, or "
+                            f"pausing may cut cost."
+                        ),
+                        caveats=["advisory — confirm workload before changing tier or deleting"],
+                        evidence={"skus": skus},
+                    )
+                )
+        elif r.type == "microsoft.machinelearningservices/workspaces/computes":
+            # ML compute (instances/clusters) bills per VM size, but cost rolls up to
+            # the owning workspace — so these are advisory. Pass the workspace's
+            # monthly cost as context (savings stays 0; we can't isolate the compute's
+            # share). See _ml_compute_rec for the three wasteful shapes it flags.
+            ws_monthly = round(monthly_cost.get(str(cfg.get("workspace_id") or ""), 0.0), 2)
+            rec = _ml_compute_rec(r, ws_monthly)
+            if rec is not None:
+                recs.append(rec)
     return recs
 
 

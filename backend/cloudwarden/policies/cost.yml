@@ -1,0 +1,108 @@
+# CloudWarden default FinOps cost-hygiene policies (Cloud Custodian, azure provider).
+#
+# Managed as code — Git is the single source of truth. Every policy ships DISABLED;
+# enable the ones you want from the Policies UI once you've reviewed its filter and
+# action. The default action is a non-destructive `tag`, so an enabled policy only
+# *flags* the resource — swap in `mark-for-op` / `delete` / `notify` when ready to act.
+policies:
+  - name: cw-unattached-managed-disks
+    resource: azure.disk
+    description: >-
+      Managed disks in the Unattached state bill for their full provisioned
+      capacity while referenced by no VM. Flag them for owner review / cleanup.
+    filters:
+      - type: value
+        key: properties.diskState
+        value: Unattached
+    actions:
+      - type: tag
+        tag: cw-finops
+        value: unattached-disk
+
+  - name: cw-orphaned-public-ips
+    resource: azure.publicip
+    description: >-
+      Standard-SKU public IPs bill even when associated with nothing. Flag public
+      IPs that have no ipConfiguration (unassociated).
+    filters:
+      - type: value
+        key: properties.ipConfiguration
+        value: absent
+    actions:
+      - type: tag
+        tag: cw-finops
+        value: orphaned-public-ip
+
+  - name: cw-stopped-deallocated-vms
+    resource: azure.vm
+    description: >-
+      Deallocated (stopped) VMs stop compute charges, but their disks and reserved
+      public IPs keep billing. Flag long-parked VMs for review before cleanup.
+    filters:
+      - type: value
+        key: "properties.extended.instanceView.powerState.code"
+        op: eq
+        value: "PowerState/deallocated"
+    actions:
+      - type: tag
+        tag: cw-finops
+        value: stopped-vm
+
+  - name: cw-empty-app-service-plans
+    resource: azure.appserviceplan
+    description: >-
+      App Service plans bill for their tier regardless of load; a plan hosting
+      zero sites is pure waste.
+    filters:
+      - type: value
+        key: properties.numberOfSites
+        op: eq
+        value: 0
+    actions:
+      - type: tag
+        tag: cw-finops
+        value: empty-app-service-plan
+
+  - name: cw-stale-snapshots
+    resource: azure.snapshot
+    description: >-
+      Disk snapshots older than 90 days are often forgotten backups that keep
+      accruing storage cost.
+    filters:
+      - type: value
+        key: properties.timeCreated
+        op: greater-than
+        value_type: age
+        value: 90
+    actions:
+      - type: tag
+        tag: cw-finops
+        value: stale-snapshot
+
+  - name: cw-idle-load-balancers
+    resource: azure.loadbalancer
+    description: >-
+      A load balancer with no backend address pools serves no traffic but still
+      bills for its rules / SKU.
+    filters:
+      - type: value
+        key: properties.backendAddressPools
+        value: empty
+    actions:
+      - type: tag
+        tag: cw-finops
+        value: idle-load-balancer
+
+  - name: cw-orphaned-nics
+    resource: azure.networkinterface
+    description: >-
+      Network interfaces not attached to any VM are orphaned leftovers from
+      deleted resources.
+    filters:
+      - type: value
+        key: properties.virtualMachine
+        value: absent
+    actions:
+      - type: tag
+        tag: cw-finops
+        value: orphaned-nic

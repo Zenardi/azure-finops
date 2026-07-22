@@ -74,6 +74,18 @@ def _default_git_client() -> GitClient:
     return LiveGitClient()
 
 
+def _local_policy_dir(settings: Any) -> Path:
+    """Policy directory used when no remote is configured (Git-tracked, bundled).
+
+    ``GITOPS_LOCAL_PATH`` overrides it; the default is ``cloudwarden/policies`` next
+    to this package — the shipped defaults are version-controlled in this repo, so
+    "Git is the source of truth" holds even before a remote repo is wired up.
+    """
+    if settings.gitops_local_path:
+        return Path(settings.gitops_local_path)
+    return Path(__file__).resolve().parent.parent / "policies"
+
+
 def _policy_files(policy_dir: Path) -> list[Path]:
     if not policy_dir.is_dir():
         return []
@@ -98,26 +110,33 @@ def sync_policies(
         "updated": 0,
         "unchanged": 0,
         "skipped": 0,
+        "removed": 0,
         "errors": [],
         "error": None,
+        "source": None,
     }
 
-    if not settings.gitops_repo_url:
-        report["error"] = "GITOPS_REPO_URL is not configured"
-        return report
+    # Resolve the policy directory: a configured remote (clone/pull) or, when none is
+    # set, the bundled Git-tracked defaults. Either way the source is version control.
+    if settings.gitops_repo_url:
+        client = git_client if git_client is not None else _default_git_client()
+        url, branch = settings.gitops_repo_url, settings.gitops_branch
+        try:
+            checkout = client.clone_or_pull(url, branch)
+        except Exception as exc:  # noqa: BLE001 - non-fatal: report a structured error
+            REGISTRY.set("gitops", ok=False, error=str(exc))
+            report["error"] = f"git clone/pull failed: {exc}"
+            return report
+        policy_dir = Path(checkout) / settings.gitops_policy_path
+        report["source"] = f"{settings.gitops_repo_url}@{settings.gitops_branch}"
+    else:
+        policy_dir = _local_policy_dir(settings)
+        report["source"] = f"local:{policy_dir}"
 
-    client = git_client if git_client is not None else _default_git_client()
-    try:
-        checkout = client.clone_or_pull(settings.gitops_repo_url, settings.gitops_branch)
-    except Exception as exc:  # noqa: BLE001 - non-fatal: report a structured error
-        REGISTRY.set("gitops", ok=False, error=str(exc))
-        report["error"] = f"git clone/pull failed: {exc}"
-        return report
-
-    checkout_path = Path(checkout)
+    synced_names: set[str] = set()
     with session_scope() as session:
-        for path in _policy_files(checkout_path / settings.gitops_policy_path):
-            rel = str(path.relative_to(checkout_path))
+        for path in _policy_files(policy_dir):
+            rel = path.name
             try:
                 data = yaml.safe_load(path.read_text(encoding="utf-8"))
             except Exception as exc:  # noqa: BLE001 - skip unparseable file
@@ -154,6 +173,10 @@ def sync_policies(
                     source="gitops",
                 )
                 report[outcome] += 1
+                synced_names.add(name)
+
+        # Git is the source of truth: a policy dropped from the repo is removed here.
+        report["removed"] = repo.delete_gitops_policies_absent(session, synced_names)
 
     REGISTRY.set("gitops", ok=True)
     report["ok"] = True

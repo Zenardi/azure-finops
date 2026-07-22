@@ -14,6 +14,7 @@ import {
   PolicyVersion,
   ValidationResult,
 } from "../lib/api";
+import { RowActionsMenu } from "../components/RowActionsMenu";
 
 /** Render a field value for the diff: objects as JSON, null/empty as a placeholder. */
 function fmtValue(v: any): string {
@@ -74,6 +75,9 @@ export default function Policies() {
   const [fromV, setFromV] = useState<number | null>(null);
   const [toV, setToV] = useState<number | null>(null);
   const [diff, setDiff] = useState<PolicyDiff | null>(null);
+  // Which row's action menu is open (only one at a time). Keyed by policy id.
+  const [menuFor, setMenuFor] = useState<number | null>(null);
+  const closeMenu = useCallback(() => setMenuFor(null), []);
 
   const load = useCallback(async () => {
     try {
@@ -436,18 +440,31 @@ export default function Policies() {
                 </td>
                 <td className="num">{p.version}</td>
                 <td>
-                  <div className="row-actions">
-                    <button onClick={() => edit(p)}>Edit</button>
-                    <button onClick={() => openHistory(p)} disabled={b("hist")}>
-                      History
-                    </button>
-                    <button onClick={() => toggle(p)} disabled={b("toggle")}>
-                      {p.enabled ? "Disable" : "Enable"}
-                    </button>
-                    <button className="reject" onClick={() => remove(p)} disabled={b("del")}>
-                      Delete
-                    </button>
-                  </div>
+                  <RowActionsMenu
+                    label={`Actions for ${p.name}`}
+                    open={menuFor === p.id}
+                    onToggle={() => setMenuFor(menuFor === p.id ? null : p.id)}
+                    onClose={closeMenu}
+                    items={[
+                      { label: "Edit", onClick: () => edit(p) },
+                      {
+                        label: "History",
+                        onClick: () => openHistory(p),
+                        disabled: b("hist"),
+                      },
+                      {
+                        label: p.enabled ? "Disable" : "Enable",
+                        onClick: () => toggle(p),
+                        disabled: b("toggle"),
+                      },
+                      {
+                        label: "Delete",
+                        onClick: () => remove(p),
+                        danger: true,
+                        disabled: b("del"),
+                      },
+                    ]}
+                  />
                 </td>
               </tr>
             );
