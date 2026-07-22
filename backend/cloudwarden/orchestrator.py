@@ -219,8 +219,7 @@ def _sync_display_names() -> None:
         candidates = [
             (r.subscription_id, r.tenant_id, r.client_id, r.client_secret)
             for r in repo.enabled_subscriptions(session)
-            if (getattr(r, "provider", None) or "azure") == "azure"
-            and repo.is_auto_display_name(r)
+            if (getattr(r, "provider", None) or "azure") == "azure" and repo.is_auto_display_name(r)
         ]
 
     for sub_id, tenant_id, client_id, client_secret in candidates:

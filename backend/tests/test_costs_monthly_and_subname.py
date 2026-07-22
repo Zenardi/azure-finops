@@ -30,10 +30,14 @@ def _ym(k: int) -> str:
     return f"{d.year:04d}-{d.month:02d}"
 
 
-def _seed_cost(day: dt.date, cost: float, provider: str, sub_id: str, currency: str = "USD") -> None:
+def _seed_cost(
+    day: dt.date, cost: float, provider: str, sub_id: str, currency: str = "USD"
+) -> None:
     with session_scope() as s:
         if s.get(schema.Subscription, sub_id) is None:
-            s.add(schema.Subscription(subscription_id=sub_id, display_name=sub_id, provider=provider))
+            s.add(
+                schema.Subscription(subscription_id=sub_id, display_name=sub_id, provider=provider)
+            )
         s.add(
             schema.CostSnapshot(
                 usage_date=day,

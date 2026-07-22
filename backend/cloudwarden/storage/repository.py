@@ -1920,9 +1920,7 @@ def upsert_rollups(session: Session, rollups: list[m.UtilizationRollup]) -> int:
         chunk = payload[start : start + step]
         stmt = pg_insert(schema.UtilizationRollup).values(chunk)
         update_cols = {
-            c: getattr(stmt.excluded, c)
-            for c in chunk[0]
-            if c not in {"resource_id", "window_end"}
+            c: getattr(stmt.excluded, c) for c in chunk[0] if c not in {"resource_id", "window_end"}
         }
         stmt = stmt.on_conflict_do_update(
             index_elements=["resource_id", "window_end"], set_=update_cols
