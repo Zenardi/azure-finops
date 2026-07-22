@@ -1401,7 +1401,14 @@ jobs:
       - name: Run mutation testing (core modules)
         run: |
           set +e
-          mutmut run 2>&1 | tee mutmut.log
+          # Run mutmut from a copy OUTSIDE the repo tree: otherwise pytest discovers
+          # the root pyproject, whose pythonpath=["backend"] imports the ORIGINAL
+          # source and bypasses mutmut's mutated sandbox ("no test case for any
+          # mutant"). The standalone copy has only [mutmut] config, so mutmut's own
+          # sandbox sys.path provides the mutated package. See issue #52 (M13.2).
+          rm -rf "$RUNNER_TEMP/mut" && cp -r . "$RUNNER_TEMP/mut"
+          cd "$RUNNER_TEMP/mut"
+          mutmut run 2>&1 | tee "$GITHUB_WORKSPACE/mutmut.log"
           echo "mutmut run exit: ${PIPESTATUS[0]} (advisory)"
           true
       - name: Mutation score vs threshold (advisory)
@@ -1413,7 +1420,7 @@ jobs:
           import re
 
           THRESHOLD = 80.0  # % of tested mutants that must be killed (documented gate).
-          log = pathlib.Path("mutmut.log")
+          log = pathlib.Path(os.environ.get("GITHUB_WORKSPACE", ".")) / "mutmut.log"
           text = log.read_text(errors="replace") if log.exists() else ""
           ansi = re.compile(r"\x1b\[[0-9;]*m")
 
