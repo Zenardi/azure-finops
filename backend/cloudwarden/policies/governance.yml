@@ -1,0 +1,47 @@
+# CloudWarden default governance policies (Cloud Custodian, azure provider).
+#
+# Managed as code — Git is the single source of truth. All ship DISABLED; enable
+# per-policy in the UI once reviewed. Default action tags the resource for review;
+# swap for `notify` / remediation once you've validated the match set.
+policies:
+  - name: cw-vms-missing-owner-tag
+    resource: azure.vm
+    description: >-
+      Every VM should carry an `owner` tag so cost and governance can be
+      attributed. Flag VMs missing it.
+    filters:
+      - type: value
+        key: "tags.owner"
+        value: absent
+    actions:
+      - type: tag
+        tag: cw-governance
+        value: missing-owner-tag
+
+  - name: cw-public-blob-storage
+    resource: azure.storage
+    description: >-
+      Storage accounts that allow public blob access are a governance and data
+      exfiltration risk. Flag accounts with allowBlobPublicAccess enabled.
+    filters:
+      - type: value
+        key: properties.allowBlobPublicAccess
+        value: true
+    actions:
+      - type: tag
+        tag: cw-governance
+        value: public-blob-access
+
+  - name: cw-cosmosdb-public-network
+    resource: azure.cosmosdb
+    description: >-
+      Cosmos DB accounts with public network access enabled should be reviewed
+      for private-endpoint enforcement.
+    filters:
+      - type: value
+        key: properties.publicNetworkAccess
+        value: Enabled
+    actions:
+      - type: tag
+        tag: cw-governance
+        value: cosmosdb-public-network

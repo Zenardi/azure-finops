@@ -616,6 +616,10 @@ def upsert_policy_by_name(
                 spec=spec,
                 description=description,
                 source=source,
+                # Git-imported policies land DISABLED — the operator opts each one in.
+                # The update branch below never touches `enabled`, so a later re-sync
+                # of an edited definition preserves whatever the operator toggled.
+                enabled=False,
             )
         )
         session.flush()
@@ -634,6 +638,26 @@ def upsert_policy_by_name(
     existing.version += 1
     session.flush()
     return "updated"
+
+
+def delete_gitops_policies_absent(
+    session: Session, keep_names: set[str], *, source: str = "gitops"
+) -> int:
+    """Delete ``source`` policies whose name is not in ``keep_names``.
+
+    Git is the source of truth: a policy removed from the repo must disappear from
+    the DB on the next sync. Only touches rows with the given ``source`` so
+    user-authored (``custom``) policies are never collaterally deleted.
+    """
+    q = session.query(schema.Policy).filter(schema.Policy.source == source)
+    if keep_names:
+        q = q.filter(schema.Policy.name.notin_(keep_names))
+    stale = q.all()
+    for rec in stale:
+        session.delete(rec)
+    if stale:
+        session.flush()
+    return len(stale)
 
 
 # --------------------------------------------------------------------------- #

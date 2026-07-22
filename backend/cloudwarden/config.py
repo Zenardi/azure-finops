@@ -110,9 +110,13 @@ class Settings(BaseSettings):
     downsize_mem_p95: float = 50.0
 
     # --- GitOps policy sync ---
-    gitops_repo_url: str = ""  # empty disables sync
+    # Git is the source of truth for policies. When gitops_repo_url is set, sync
+    # clones/pulls it; when empty, it falls back to gitops_local_path (default: the
+    # bundled cloudwarden/policies dir) so the shipped defaults load out of the box.
+    gitops_repo_url: str = ""  # empty → use the local/bundled policy dir
     gitops_branch: str = "main"
     gitops_policy_path: str = "policies"  # path within the repo holding policy YAML
+    gitops_local_path: str = ""  # empty → cloudwarden/policies (bundled defaults)
 
     # --- Remediation guardrails ---
     remediation_enabled: bool = False

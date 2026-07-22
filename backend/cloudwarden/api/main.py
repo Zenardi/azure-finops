@@ -72,6 +72,15 @@ async def lifespan(_: FastAPI):
             rbac.seed_default_roles(session, bootstrap_admin=settings.rbac_bootstrap_admin or None)
     except Exception:  # noqa: BLE001 - endpoints will surface DB errors individually
         logger.exception("init_db failed at startup")
+    try:
+        # Pull policies from Git (or the bundled defaults) so the app reflects the
+        # source of truth on boot. Non-fatal: a sync failure must not block startup.
+        from ..custodian import gitops
+
+        report = gitops.sync_policies()
+        logger.info("gitops policy sync at startup: %s", report)
+    except Exception:  # noqa: BLE001 - never let policy sync sink startup
+        logger.exception("gitops policy sync failed at startup")
     yield
 
 
