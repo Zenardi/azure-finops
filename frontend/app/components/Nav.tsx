@@ -154,6 +154,7 @@ const GROUPS: NavGroup[] = [
     label: "FinOps",
     items: [
       { href: "/costs", label: "Costs", icon: "costs" },
+      { href: "/showback", label: "Showback", icon: "budgets" },
       { href: "/recommendations", label: "Recommendations", icon: "recommendations" },
       { href: "/budgets", label: "Budgets", icon: "budgets" },
     ],

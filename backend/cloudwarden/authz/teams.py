@@ -93,3 +93,46 @@ def resolve_owning_team(
         return None
     team_ids = repo.list_teams_for_principal(session, principal)
     return team_ids[0] if len(team_ids) == 1 else None
+
+
+# --------------------------------------------------------------------------- #
+# Showback/chargeback: tag value → team scoping (M14.5)
+# --------------------------------------------------------------------------- #
+def team_map_from_settings(settings: Any) -> dict[str, str]:
+    """Parse the configured tag-value → team-name map (``SHOWBACK_TEAM_MAP`` JSON).
+
+    Returns ``{}`` for an absent/blank/malformed value or a non-object JSON — a bad map
+    degrades to "no team bindings", never an error at request time.
+    """
+    import json
+
+    raw = getattr(settings, "showback_team_map", "") or "{}"
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {str(k): str(v) for k, v in parsed.items()}
+
+
+def visible_tag_values(
+    session: Session,
+    principal: str | None,
+    *,
+    team_map: dict[str, str],
+    rbac_enabled: bool,
+) -> set[str] | None:
+    """The tag values a ``principal`` may see in showback (``None`` = *all*).
+
+    ``None`` when scoping does not apply — RBAC disabled, or the caller is an admin — so
+    the caller sees every allocation (incl. unallocated). Otherwise the tag values whose
+    mapped team the principal belongs to; a principal on no mapped team gets an empty set
+    (sees nothing), never another team's spend."""
+    if not rbac_enabled or is_admin(session, principal):
+        return None
+    if not principal:
+        return set()
+    my_team_ids = set(repo.list_teams_for_principal(session, principal))
+    my_team_names = {t["name"] for t in repo.list_teams(session) if t["id"] in my_team_ids}
+    return {value for value, team_name in team_map.items() if team_name in my_team_names}

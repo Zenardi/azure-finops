@@ -1880,10 +1880,11 @@ def upsert_cost_snapshots(session: Session, rows: list[m.CostRow]) -> int:
             "service_name": c.service_name,
             "cost": c.cost,
             "currency": c.currency,
+            "tags": c.tags or {},
         }
         for c in dedup.values()
     ]
-    step = _rows_per_statement(columns=11)  # cost_snapshots row = 11 bound params
+    step = _rows_per_statement(columns=12)  # cost_snapshots row = 12 bound params (+ tags)
     for start in range(0, len(payload), step):
         chunk = payload[start : start + step]
         stmt = pg_insert(schema.CostSnapshot).values(chunk)
@@ -1897,10 +1898,45 @@ def upsert_cost_snapshots(session: Session, rows: list[m.CostRow]) -> int:
                 "resource_group": stmt.excluded.resource_group,
                 "location": stmt.excluded.location,
                 "service_name": stmt.excluded.service_name,
+                "tags": stmt.excluded.tags,
             },
         )
         session.execute(stmt)
     return len(payload)
+
+
+def cost_by_tag(
+    session: Session,
+    *,
+    key: str,
+    start: date,
+    end: date,
+    tag_values: list[str] | None = None,
+    subscription_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Amortized spend grouped by the value of tag ``key`` over ``[start, end]``.
+
+    Returns ``[{"tag_value": <value or None>, "cost": float, "currency": str}]`` — the
+    showback/chargeback dimension. **Injection-safe:** the tag ``key`` is a *bound*
+    parameter to the JSONB ``->>`` operator, never interpolated into SQL, so a malicious
+    key is a harmless (miss-everything) lookup whose spend lands in the ``NULL`` bucket.
+    Untagged rows (no value for ``key``) return ``tag_value = None`` — the unallocated
+    bucket. ``tag_values`` restricts the result to those values (team-scoping); an
+    ``ANY(:tag_values)`` bound array, so untagged/other rows are excluded."""
+    sql = (
+        "SELECT tags ->> :key AS tag_value, SUM(cost) AS cost, MAX(currency) AS currency "
+        "FROM cost_snapshots "
+        "WHERE cost_type = 'Amortized' AND usage_date >= :start AND usage_date <= :end"
+    )
+    params: dict[str, Any] = {"key": key, "start": start, "end": end}
+    if subscription_id:
+        sql += " AND subscription_id = :subscription_id"
+        params["subscription_id"] = subscription_id
+    if tag_values is not None:
+        sql += " AND (tags ->> :key) = ANY(:tag_values)"
+        params["tag_values"] = list(tag_values)
+    sql += " GROUP BY tags ->> :key ORDER BY cost DESC"
+    return _rows(session, sql, **params)
 
 
 # --------------------------------------------------------------------------- #

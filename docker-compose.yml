@@ -26,6 +26,10 @@ services:
       # Cost anomaly detection (M14.3): seed a demo spike into the mock cost series so
       # the FINOPS_MOCK stack surfaces a detectable anomaly out of the box.
       ANOMALY_MOCK_SPIKE: ${ANOMALY_MOCK_SPIKE:-true}
+      # Showback/chargeback (M14.5): allocate spend by this tag key. The mock inventory
+      # tags resources with `owner`, so the demo allocates by owner out of the box.
+      SHOWBACK_TAG_KEY: ${SHOWBACK_TAG_KEY:-owner}
+      SHOWBACK_TEAM_MAP: ${SHOWBACK_TEAM_MAP:-{}}
       # RBAC (M11.1): off by default; set these to enforce permissions on writes.
       RBAC_ENABLED: ${RBAC_ENABLED:-false}
       RBAC_BOOTSTRAP_ADMIN: ${RBAC_BOOTSTRAP_ADMIN:-}

@@ -174,6 +174,15 @@ evidence-backed recommendations across five detector families, plus a preventive
   closes over budget. Surfaced at `GET /api/costs/forecast` (RBAC `forecast:read`), a
   *Spend forecast* panel on the **Cost explorer** page, and a *Spend forecast* Grafana
   table; idempotent per `(scope, horizon, day)`.
+- **Showback / chargeback** (`analysis/allocation.py`, M14.5) — allocates spend by an
+  arbitrary tag key (`CostCenter` / `Owner` / `Team` / `env`), maps tag values to
+  **teams**, and surfaces an explicit **unallocated** bucket for untagged spend. Cost
+  rows carry inventory tags (a new `cost_snapshots.tags` dimension); grouping is
+  **injection-safe** (the tag key is a bound `tags ->> :key` lookup). `allocated +
+  unallocated` always reconciles to the total, and a **team-scoped** principal sees only
+  its own allocation. Shared costs split **even**/**proportional**. Surfaced at
+  `GET /api/costs/by-tag` · `/showback` · streaming `/showback/export` (CSV/JSON, RBAC
+  `showback:read`), a **Showback** page, and a *cost by owner* Grafana panel.
 - **Commitment coverage** (`analysis/commitments.py`, M14.1) — Reservation /
   Savings-Plan optimization, the largest untapped lever. Flags **under-utilized**
   commitments (advisory waste = the idle share of committed capacity) and

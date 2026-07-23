@@ -62,6 +62,8 @@ class CostRow(BaseModel):
     cost: float = 0.0
     currency: str = "USD"
     cost_type: str = "Amortized"  # Actual | Amortized
+    # Resource tags (enriched from inventory) — the showback/chargeback dimension (M14.5).
+    tags: dict[str, str] = Field(default_factory=dict)
 
 
 class MetricSample(BaseModel):
