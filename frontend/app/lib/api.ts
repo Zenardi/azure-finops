@@ -347,6 +347,45 @@ export function listAnomalies(
   );
 }
 
+export type ForecastHorizon = "month_end" | "quarter_end";
+export type ForecastConfidence = "high" | "low";
+
+/** A projection of spend to a period end for one scope (mirrors the backend row). */
+export interface CostForecast {
+  id: number;
+  scope_type: string;
+  scope_value: string;
+  horizon: ForecastHorizon;
+  as_of: string; // ISO YYYY-MM-DD
+  period_end: string; // ISO YYYY-MM-DD
+  provider: string;
+  point: number;
+  lower: number;
+  upper: number;
+  actual_to_date: number;
+  projected: number;
+  mape: number | null; // backtest accuracy (%), null on thin-history estimates
+  model: string;
+  confidence: ForecastConfidence;
+  currency: string;
+  run_id: string | null;
+  created_at: string | null;
+}
+
+/** Recorded cost forecasts (projected spend), newest `as_of` first. */
+export function listForecasts(
+  params: { scope_type?: string; scope_value?: string; horizon?: string; limit?: number } = {},
+): Promise<CostForecast[]> {
+  const qs = new URLSearchParams();
+  if (params.scope_type) qs.set("scope_type", params.scope_type);
+  if (params.scope_value !== undefined) qs.set("scope_value", params.scope_value);
+  if (params.horizon) qs.set("horizon", params.horizon);
+  qs.set("limit", String(params.limit ?? 200));
+  return apiGet<{ forecasts: CostForecast[] }>(`/api/costs/forecast?${qs.toString()}`).then(
+    (r) => r.forecasts,
+  );
+}
+
 /**
  * Query string for the day/cloud-scoped cost endpoints (`/api/costs/summary`,
  * `by-type`, `by-region` — #116). Always sends `days`; omits `provider` for the

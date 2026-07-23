@@ -432,6 +432,32 @@ def list_anomalies(
     return {"anomalies": anomalies}
 
 
+# --- Cost forecasting (M14.4) --------------------------------------------------
+@app.get(
+    "/api/costs/forecast",
+    dependencies=[Depends(rbac.require_permission("forecast:read"))],
+)
+def list_forecasts(
+    scope_type: str | None = Query(default=None),
+    scope_value: str | None = Query(default=None),
+    horizon: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=1000),
+) -> dict[str, Any]:
+    """Recorded cost forecasts — the projected month-end/quarter-end spend per scope
+    with its prediction interval, backtest MAPE and confidence label. Filter by
+    ``scope_type``/``scope_value``/``horizon``. RBAC-guarded (``forecast:read``)
+    because projected spend is financially sensitive."""
+    with session_scope() as session:
+        forecasts = repo.list_cost_forecasts(
+            session,
+            scope_type=scope_type,
+            scope_value=scope_value,
+            horizon=horizon,
+            limit=limit,
+        )
+    return {"forecasts": forecasts}
+
+
 # --------------------------------------------------------------------------- #
 # Governance-as-code: policy validation + Custodian schema (M1.3)
 # --------------------------------------------------------------------------- #

@@ -131,6 +131,21 @@ class Settings(BaseSettings):
     # default so the default mock series stays smooth (no synthetic anomaly in tests).
     anomaly_mock_spike: bool = False
 
+    # --- Cost forecasting (M14.4) ---
+    # Project spend to month-end/quarter-end each run and feed the forecasted-to-exceed
+    # budget rule. Set false to skip forecasting entirely.
+    forecast_enabled: bool = True
+    # Trailing window (days) the trend + weekday seasonality are fit on.
+    forecast_window_days: int = 90
+    # Below this many baseline days, emit a labelled low-confidence linear estimate.
+    forecast_min_history_days: int = 14
+    # Rolling one-step-ahead backtest folds feeding the recorded MAPE.
+    forecast_backtest_days: int = 14
+    # Prediction-interval confidence level (percent): 80/85/90/95/99.
+    forecast_confidence_pct: float = 80.0
+    # Model weekday seasonality (weekend/weekday spend effects) before projecting.
+    forecast_seasonality: bool = True
+
     # --- Analysis windows & thresholds ---
     metric_lookback_days: int = 14
     cost_lookback_days: int = 30

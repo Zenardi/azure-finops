@@ -19,6 +19,7 @@ from .ai.prompt import build_payload
 from .analysis.anomaly import detect_cost_anomalies
 from .analysis.budgets import evaluate_budgets
 from .analysis.commitments import analyze_commitments
+from .analysis.forecast import compute_cost_forecasts, forecast_for_budget
 from .analysis.idle import detect_idle, detect_idle_by_activity
 from .analysis.rollup import build_rollups
 from .analysis.rules import evaluate_vms, prioritize
@@ -267,13 +268,27 @@ def run_pipeline(
             )
             repo.upsert_ai_summary(session, run_id, ai_summary)
             counts["ai_summary"] = 1
+        # Cost forecasting (M14.4): with this run's cost committed, project spend to
+        # month-end/quarter-end per scope so budgets (below) can consume the fresh
+        # forecast for the forecasted-to-exceed rule. Best-effort in its own
+        # transaction — a forecasting failure never fails a run.
+        if settings.forecast_enabled:
+            try:
+                with session_scope() as session:
+                    summary = compute_cost_forecasts(session, on=date.today(), run_id=run_id)
+                counts["forecasts"] = summary["forecasts_written"]
+            except Exception:  # noqa: BLE001 - forecasting is best-effort
+                logger.warning("cost forecasting failed for run %s", run_id, exc_info=True)
         # Budgets (M14.2): with this run's cost committed, evaluate budgets vs actual
-        # spend and fire threshold-crossing alerts through the existing transports.
+        # spend and fire threshold-crossing alerts through the existing transports. The
+        # forecasted-to-exceed rule (M14.4) consumes the forecast computed just above.
         # Best-effort in its own transaction — a budget/alert failure never fails a run.
         if settings.budget_alerts_enabled:
             try:
                 with session_scope() as session:
-                    summary = evaluate_budgets(session, on=date.today(), run_id=run_id)
+                    summary = evaluate_budgets(
+                        session, on=date.today(), run_id=run_id, forecast_fn=forecast_for_budget
+                    )
                 counts["budget_events"] = summary["events_recorded"]
                 counts["budget_alerts"] = summary["notifications_sent"]
             except Exception:  # noqa: BLE001 - budget evaluation is best-effort

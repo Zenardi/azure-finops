@@ -209,6 +209,64 @@ mock mode a seeded spike (`fixtures/cost_anomaly.json`) is overlaid only when
 `ANOMALY_MOCK_SPIKE=1`, so a demo stack surfaces a live anomaly while the default mock
 series (and the test suite) stay smooth.
 
+## Cost forecasting (M14.4)
+
+Reporting answers "what did we spend?"; leadership keeps asking "where will we **land**
+this month?". `analysis/forecast.py` projects spend to **month-end** and **quarter-end**
+per scope (`total` / `subscription` / `service`) over the `cost_snapshots` time-series,
+each run, right after the cost store commits and just before budgets evaluate.
+
+**A transparent, explainable model — not a black box.** The forecast decomposes into two
+parts anyone can reason about:
+
+* **Trend** — an ordinary least-squares line over the trailing window's daily totals
+  (default `FORECAST_WINDOW_DAYS=90`), indexed by *calendar day* so gaps don't skew the
+  slope.
+* **Weekday seasonality** — multiplicative per-weekday factors (that weekday's median
+  ratio to the trend line), so a heavy-weekend / light-weekend pattern is projected, not
+  averaged away. Each remaining day is `max(trend, 0) × weekday_factor`.
+
+The period point is `actual-to-date (this period) + Σ projected remaining days`.
+
+**Every forecast carries its own credibility.** Two honesty guarantees:
+
+* **A prediction interval.** `[lower, upper]` widens with the residual spread and the
+  number of days still to project (`z · σ · √remaining`, `z` from
+  `FORECAST_CONFIDENCE_PCT`, default 80%), floored at what's already been spent — so the
+  point always sits inside its interval and the band never dips below booked spend.
+* **A backtested accuracy (MAPE).** A rolling-origin one-step-ahead backtest over the
+  tail of the window records a mean absolute percentage error next to the number, so the
+  estimate is honest about its typical miss.
+
+**Degrades gracefully — never fabricates, never hides.** Below `FORECAST_MIN_HISTORY_DAYS`
+(default 14) the forecaster still emits a **clearly-labelled** `confidence: low`
+(`model: linear_low_confidence`) estimate — a wider band, no seasonality, no backtest —
+rather than a confident-looking fiction or nothing at all.
+
+**Budgets consume it.** A budget threshold with `basis: "forecast"` (M14.2) fires off the
+projection computed the same run: the pipeline injects `forecast_for_budget` into
+`evaluate_budgets`, mapping the budget's period to a horizon and its scope to a forecast
+grain (a tenant-wide budget → `total`). This is the **forecasted-to-exceed** alert —
+warn *before* the month closes over budget, not after. Groups/tags/teams have no forecast
+dimension until the M14.5 tag-cost work and simply yield no forecast metric (the forecast
+rule is skipped, never fired off actual spend).
+
+**Fit once, feed many; never break the run.** Forecasts persist to `cost_forecasts` keyed
+on `(scope_type, scope_value, horizon, as_of)` — one row per grain, horizon and day,
+refreshed idempotently on a same-day re-run. Forecasting runs best-effort in its own
+transaction: a failure is logged and swallowed, never failing a collection run.
+
+**Surfaced in:**
+
+| Where | What |
+|-------|------|
+| `GET /api/costs/forecast` | recorded forecasts + point/interval/MAPE/confidence per scope & horizon (RBAC-guarded: `forecast:read`; filter by scope/horizon) |
+| **Cost explorer** web page | a *Spend forecast* panel — projected total, range, booked-to-date and backtest error per horizon |
+| *FinOps — Cost Overview* Grafana dashboard | *Spend forecast — projection to period end* table |
+
+Forecasting is toggled by `FORECAST_ENABLED` (default on), weekday seasonality by
+`FORECAST_SEASONALITY`, and is Azure-first behind the `CloudProvider` abstraction.
+
 ## AI executive summary
 
 Configured via the `AI_*` keys ([03](03-configuration.md#ai-provider-executive-summary)).

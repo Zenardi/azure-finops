@@ -164,6 +164,16 @@ evidence-backed recommendations across five detector families, plus a preventive
   or an in-pattern weekly peak. Surfaced at `GET /api/finops/anomalies` (RBAC
   `anomaly:read`), on the **Cost explorer** page, and in a *Cost anomalies* Grafana
   panel; idempotent on `(scope, date)` so it never re-alerts.
+- **Cost forecasting** (`analysis/forecast.py`, M14.4) — answers "where will we **land**
+  this month?": each run projects spend to **month-end** and **quarter-end** per scope
+  (total / subscription / service) with a **transparent** trend + weekday-seasonal model,
+  a **prediction interval**, and a **backtested MAPE** so the number carries its own
+  credibility. **Degrades gracefully** — thin history yields a clearly-labelled
+  low-confidence estimate, never a fabricated one. **Budgets consume it**: a
+  forecast-basis threshold fires the **forecasted-to-exceed** alert *before* the period
+  closes over budget. Surfaced at `GET /api/costs/forecast` (RBAC `forecast:read`), a
+  *Spend forecast* panel on the **Cost explorer** page, and a *Spend forecast* Grafana
+  table; idempotent per `(scope, horizon, day)`.
 - **Commitment coverage** (`analysis/commitments.py`, M14.1) — Reservation /
   Savings-Plan optimization, the largest untapped lever. Flags **under-utilized**
   commitments (advisory waste = the idle share of committed capacity) and

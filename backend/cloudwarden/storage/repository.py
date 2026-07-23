@@ -2631,6 +2631,169 @@ def ensure_anomaly_template(session: Session) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Cost forecasting (M14.4)
+# --------------------------------------------------------------------------- #
+def _forecast_public(rec: schema.CostForecast) -> dict[str, Any]:
+    return {
+        "id": rec.id,
+        "scope_type": rec.scope_type,
+        "scope_value": rec.scope_value,
+        "horizon": rec.horizon,
+        "as_of": rec.as_of.isoformat() if rec.as_of else None,
+        "period_end": rec.period_end.isoformat() if rec.period_end else None,
+        "provider": rec.provider,
+        "point": float(rec.point),
+        "lower": float(rec.lower),
+        "upper": float(rec.upper),
+        "actual_to_date": float(rec.actual_to_date),
+        "projected": float(rec.projected),
+        "mape": float(rec.mape) if rec.mape is not None else None,
+        "model": rec.model,
+        "confidence": rec.confidence,
+        "currency": rec.currency,
+        "run_id": rec.run_id,
+        "created_at": rec.created_at.isoformat() if rec.created_at else None,
+    }
+
+
+def cost_daily_total(session: Session, *, start: date, end: date) -> list[dict[str, Any]]:
+    """Daily amortized spend summed across the whole tenant over ``[start, end]``.
+
+    One row per day — the ``total`` series the forecaster fits. Mirrors every other
+    cost read by filtering ``cost_type = 'Amortized'``; dates are bound parameters."""
+    return _rows(
+        session,
+        "SELECT usage_date, SUM(cost) AS cost, MAX(currency) AS currency FROM cost_snapshots "
+        "WHERE cost_type = 'Amortized' AND usage_date >= :start AND usage_date <= :end "
+        "GROUP BY usage_date ORDER BY usage_date",
+        start=start,
+        end=end,
+    )
+
+
+def upsert_cost_forecast(
+    session: Session,
+    *,
+    scope_type: str,
+    scope_value: str,
+    horizon: str,
+    as_of: date,
+    period_end: date,
+    point: float,
+    lower: float,
+    upper: float,
+    actual_to_date: float,
+    projected: float,
+    mape: float | None = None,
+    model: str = "seasonal_trend",
+    confidence: str = "high",
+    provider: str = "azure",
+    currency: str = "USD",
+    run_id: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], bool]:
+    """Upsert a forecast, deduped on ``(scope_type, scope_value, horizon, as_of)``.
+
+    Returns ``(row, inserted)``: ``inserted`` is ``True`` on the first write of this
+    grain/horizon/day and ``False`` when a same-day recompute refreshes it (``xmax =
+    0`` distinguishes insert from update)."""
+    stmt = (
+        pg_insert(schema.CostForecast)
+        .values(
+            scope_type=scope_type,
+            scope_value=scope_value,
+            horizon=horizon,
+            as_of=as_of,
+            period_end=period_end,
+            provider=provider,
+            point=point,
+            lower=lower,
+            upper=upper,
+            actual_to_date=actual_to_date,
+            projected=projected,
+            mape=mape,
+            model=model,
+            confidence=confidence,
+            currency=currency,
+            run_id=run_id,
+            config=config or {},
+        )
+        .on_conflict_do_update(
+            constraint="uq_cost_forecast_scope_horizon_asof",
+            set_={
+                "period_end": period_end,
+                "point": point,
+                "lower": lower,
+                "upper": upper,
+                "actual_to_date": actual_to_date,
+                "projected": projected,
+                "mape": mape,
+                "model": model,
+                "confidence": confidence,
+                "currency": currency,
+                "run_id": run_id,
+                "provider": provider,
+            },
+        )
+        .returning(schema.CostForecast.id, literal_column("(xmax = 0)"))
+    )
+    new_id, inserted = session.execute(stmt).one()
+    session.flush()
+    return _forecast_public(session.get(schema.CostForecast, new_id)), bool(inserted)
+
+
+def list_cost_forecasts(
+    session: Session,
+    *,
+    scope_type: str | None = None,
+    scope_value: str | None = None,
+    horizon: str | None = None,
+    as_of: date | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """Recorded forecasts, newest ``as_of`` first, with optional filters."""
+    query = session.query(schema.CostForecast)
+    if scope_type:
+        query = query.filter(schema.CostForecast.scope_type == scope_type)
+    if scope_value is not None:
+        query = query.filter(schema.CostForecast.scope_value == scope_value)
+    if horizon:
+        query = query.filter(schema.CostForecast.horizon == horizon)
+    if as_of:
+        query = query.filter(schema.CostForecast.as_of == as_of)
+    query = query.order_by(
+        schema.CostForecast.as_of.desc(),
+        schema.CostForecast.scope_type.asc(),
+        schema.CostForecast.horizon.asc(),
+    ).limit(limit)
+    return [_forecast_public(r) for r in query.all()]
+
+
+def get_cost_forecast(
+    session: Session,
+    *,
+    scope_type: str,
+    scope_value: str,
+    horizon: str,
+    as_of: date | None = None,
+) -> dict[str, Any] | None:
+    """The most recent forecast for a grain/horizon at or before ``as_of``.
+
+    The single-row read the forecasted-to-exceed budget rule consumes; ``None`` when
+    no forecast has been computed for the scope (no time travel — a forecast dated
+    after ``as_of`` is excluded)."""
+    query = session.query(schema.CostForecast).filter(
+        schema.CostForecast.scope_type == scope_type,
+        schema.CostForecast.scope_value == scope_value,
+        schema.CostForecast.horizon == horizon,
+    )
+    if as_of is not None:
+        query = query.filter(schema.CostForecast.as_of <= as_of)
+    rec = query.order_by(schema.CostForecast.as_of.desc(), schema.CostForecast.id.desc()).first()
+    return _forecast_public(rec) if rec else None
+
+
+# --------------------------------------------------------------------------- #
 # Read helpers (used by the API/UI)
 # --------------------------------------------------------------------------- #
 def _coerce(value: Any) -> Any:
