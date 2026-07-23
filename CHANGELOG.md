@@ -6,6 +6,27 @@ All notable changes to this project are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **Cost forecasting (#137, M14.4).** Reporting says what we spent; leadership keeps
+  asking where we'll **land**. A new `analysis/forecast.py` projects spend to
+  **month-end** and **quarter-end** per scope (`total` / `subscription` / `service`) over
+  `cost_snapshots`, each run, with a **transparent, explainable** model — an OLS linear
+  **trend** plus multiplicative **weekday-seasonal** factors (a seasonal-naive + trend
+  decomposition, not a black box). Every forecast carries its own credibility: a
+  **prediction interval** (`[lower, upper]`, widening with residual spread and days
+  remaining, floored at booked spend) and a **backtested accuracy (MAPE)** from a
+  rolling-origin one-step-ahead backtest. It **degrades gracefully** — below a configurable
+  minimum history it emits a clearly-labelled `confidence: low` linear estimate rather than
+  a fabricated number or nothing. Budgets **consume** it: a `basis: "forecast"` threshold
+  (M14.2) now fires off the projection computed the same run (the **forecasted-to-exceed**
+  alert) via `forecast_for_budget` injected into `evaluate_budgets`. Forecasts persist to a
+  new `cost_forecasts` table (unique on `(scope_type, scope_value, horizon, as_of)`,
+  idempotent per day) and run best-effort so a failure never breaks a run. New
+  `GET /api/costs/forecast` (RBAC `forecast:read`, filter by scope/horizon), a *Spend
+  forecast* panel on the **Cost explorer** page, and a *Spend forecast — projection to
+  period end* Grafana table. Azure-first behind the `CloudProvider` abstraction. Tuning via
+  `FORECAST_WINDOW_DAYS` / `FORECAST_MIN_HISTORY_DAYS` / `FORECAST_BACKTEST_DAYS` /
+  `FORECAST_CONFIDENCE_PCT` / `FORECAST_SEASONALITY`; toggle with `FORECAST_ENABLED`.
+  Strict TDD, 99% coverage on the new module, ruff clean.
 - **Cost anomaly detection (#136, M14.3).** Spend spikes were invisible until someone
   read a dashboard; detection makes FinOps watchful. A new `analysis/anomaly.py` scores
   the latest day's spend per scope (subscription / service / resource-type / resource)

@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiGet, listAnomalies, money, shortId, type CostAnomaly } from "../lib/api";
+import {
+  apiGet,
+  listAnomalies,
+  listForecasts,
+  money,
+  shortId,
+  type CostAnomaly,
+  type CostForecast,
+} from "../lib/api";
 import { prettyType } from "../lib/format";
 import { BarList, type BarItem } from "../components/BarList";
 import { CostPie, type PieSlice } from "../components/CostPie";
@@ -19,6 +27,7 @@ export default function Costs() {
   const [byRegion, setByRegion] = useState<Slice[]>([]);
   const [byRes, setByRes] = useState<Slice[]>([]);
   const [anomalies, setAnomalies] = useState<CostAnomaly[]>([]);
+  const [forecasts, setForecasts] = useState<CostForecast[]>([]);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -39,6 +48,13 @@ export default function Costs() {
           setAnomalies(await listAnomalies({ limit: 25 }));
         } catch {
           /* gated or unavailable — leave the anomalies panel hidden */
+        }
+        try {
+          // Forecasts are RBAC-gated (forecast:read) and optional — the tenant-wide
+          // ("total") projection to each horizon. A denial must not break the page.
+          setForecasts(await listForecasts({ scope_type: "total", limit: 8 }));
+        } catch {
+          /* gated or unavailable — leave the forecast panel hidden */
         }
       } catch (e) {
         setErr(String(e));
@@ -88,11 +104,83 @@ export default function Costs() {
       value: r.cost as number,
     }));
 
+  // Latest forecast per horizon (the list is newest `as_of` first, so the first
+  // sighting of each horizon is the current one). Labels keep the panel self-explaining.
+  const horizonLabel: Record<string, string> = {
+    month_end: "Month-end",
+    quarter_end: "Quarter-end",
+  };
+  const latestForecasts: CostForecast[] = [];
+  const seenHorizons = new Set<string>();
+  for (const f of forecasts) {
+    if (seenHorizons.has(f.horizon)) continue;
+    seenHorizons.add(f.horizon);
+    latestForecasts.push(f);
+  }
+
   return (
     <>
       <h1>Cost explorer</h1>
       <p className="sub">Amortized spend over the last 30 days.</p>
       {err && <div className="err">{err}</div>}
+
+      {latestForecasts.length > 0 && (
+        <section className="panel" aria-labelledby="fc-h" style={{ marginBottom: 16 }}>
+          <h2 className="panel-title" id="fc-h">
+            Spend forecast
+          </h2>
+          <p className="sub">
+            Projected tenant spend to period end — a transparent trend + weekday-seasonal
+            model, with a prediction interval and its backtested accuracy (MAPE).
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
+            {latestForecasts.map((f) => (
+              <div
+                key={f.id}
+                style={{
+                  flex: "1 1 220px",
+                  border: "1px solid var(--border, #e5e7eb)",
+                  borderRadius: 8,
+                  padding: "10px 14px",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                  <strong>{horizonLabel[f.horizon] ?? f.horizon}</strong>
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    by {f.period_end}
+                  </span>
+                  {f.confidence === "low" && (
+                    <span
+                      title="Thin history — a wider, less certain estimate"
+                      style={{
+                        background: "#a16207",
+                        color: "#fff",
+                        borderRadius: 4,
+                        padding: "1px 6px",
+                        fontSize: 10,
+                        textTransform: "uppercase",
+                        letterSpacing: 0.4,
+                      }}
+                    >
+                      low confidence
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 600, marginTop: 4 }}>
+                  {money(f.point, f.currency)}
+                </div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  range {money(f.lower, f.currency)} – {money(f.upper, f.currency)}
+                </div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                  {money(f.actual_to_date, f.currency)} booked
+                  {f.mape != null && ` · ±${f.mape.toFixed(1)}% backtest error`}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {anomalies.length > 0 && (
         <section className="panel" aria-labelledby="anom-h" style={{ marginBottom: 16 }}>

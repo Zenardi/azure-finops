@@ -946,3 +946,56 @@ class CostAnomaly(Base):
             "scope_type", "scope_value", "usage_date", name="uq_cost_anomaly_scope_date"
         ),
     )
+
+
+class CostForecast(Base):
+    """A projection of spend to a period end for one scope (M14.4).
+
+    ``scope_type``/``scope_value`` name the grain (``total`` → the whole tenant with
+    an empty ``scope_value``; else a subscription or service); ``horizon`` is
+    ``month_end`` or ``quarter_end`` and ``as_of`` the day it was computed.
+    ``point`` is the projected period total, bracketed by ``[lower, upper]``;
+    ``actual_to_date`` is the spend already booked and ``projected`` the remaining-days
+    portion. ``mape`` is the rolling-backtest accuracy (nullable — absent on
+    thin-history estimates), ``model`` the fit used (``seasonal_trend`` / ``linear`` /
+    ``linear_low_confidence``) and ``confidence`` its ``high``/``low`` label. The
+    natural key ``(scope_type, scope_value, horizon, as_of)`` is unique — one forecast
+    per grain, horizon and day, refreshed idempotently on a same-day re-run.
+    """
+
+    __tablename__ = "cost_forecasts"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    scope_type: Mapped[str] = mapped_column(String(32), default="total", index=True)
+    scope_value: Mapped[str] = mapped_column(String(512), default="", index=True)
+    horizon: Mapped[str] = mapped_column(String(16), default="month_end", index=True)
+    as_of: Mapped[date] = mapped_column(Date, index=True)
+    period_end: Mapped[date] = mapped_column(Date)
+    provider: Mapped[str] = mapped_column(
+        String(32), default="azure", server_default="azure", index=True
+    )
+    point: Mapped[float] = mapped_column(Numeric(18, 6), default=0)
+    lower: Mapped[float] = mapped_column(Numeric(18, 6), default=0)
+    upper: Mapped[float] = mapped_column(Numeric(18, 6), default=0)
+    actual_to_date: Mapped[float] = mapped_column(Numeric(18, 6), default=0)
+    projected: Mapped[float] = mapped_column(Numeric(18, 6), default=0)
+    mape: Mapped[float | None] = mapped_column(Numeric(10, 4))
+    model: Mapped[str] = mapped_column(String(32), default="seasonal_trend")
+    confidence: Mapped[str] = mapped_column(String(16), default="high", index=True)
+    currency: Mapped[str] = mapped_column(String(8), default="USD")
+    run_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    config: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "scope_type",
+            "scope_value",
+            "horizon",
+            "as_of",
+            name="uq_cost_forecast_scope_horizon_asof",
+        ),
+    )

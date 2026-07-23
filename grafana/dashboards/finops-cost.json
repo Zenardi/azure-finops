@@ -5,7 +5,7 @@
   "timezone": "",
   "editable": true,
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "refresh": "",
   "time": { "from": "now-30d", "to": "now" },
   "templating": { "list": [] },
@@ -180,6 +180,35 @@
           "format": "table",
           "rawQuery": true,
           "rawSql": "SELECT usage_date, scope_type, scope_value, severity, expected, actual, ROUND((actual / NULLIF(expected, 0))::numeric, 2) AS x_baseline, ROUND(score::numeric, 1) AS score, currency, notified, created_at FROM cost_anomalies ORDER BY usage_date DESC, score DESC LIMIT 100"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Spend forecast — projection to period end",
+      "description": "Projected spend to month-end/quarter-end per scope (transparent trend + weekday-seasonal model). point sits inside [lower, upper]; mape_pct is the rolling-backtest accuracy; confidence flags thin-history estimates. Latest as_of per scope+horizon.",
+      "datasource": { "type": "postgres", "uid": "finops_pg" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 43 },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "point" }, "properties": [ { "id": "unit", "value": "currencyUSD" } ] },
+          { "matcher": { "id": "byName", "options": "lower" }, "properties": [ { "id": "unit", "value": "currencyUSD" } ] },
+          { "matcher": { "id": "byName", "options": "upper" }, "properties": [ { "id": "unit", "value": "currencyUSD" } ] },
+          { "matcher": { "id": "byName", "options": "actual_to_date" }, "properties": [ { "id": "unit", "value": "currencyUSD" } ] },
+          { "matcher": { "id": "byName", "options": "confidence" }, "properties": [ { "id": "custom.cellOptions", "value": { "type": "color-background" } }, { "id": "mappings", "value": [ { "type": "value", "options": { "high": { "color": "dark-green", "index": 0 }, "low": { "color": "dark-orange", "index": 1 } } } ] } ] }
+        ]
+      },
+      "options": { "showHeader": true, "sortBy": [ { "displayName": "as_of", "desc": true } ] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "finops_pg" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT as_of, scope_type, scope_value, horizon, period_end, point, lower, upper, actual_to_date, ROUND(mape::numeric, 1) AS mape_pct, confidence, model, currency FROM cost_forecasts WHERE (scope_type, scope_value, horizon, as_of) IN (SELECT scope_type, scope_value, horizon, MAX(as_of) FROM cost_forecasts GROUP BY scope_type, scope_value, horizon) ORDER BY as_of DESC, scope_type, horizon LIMIT 100"
         }
       ]
     }

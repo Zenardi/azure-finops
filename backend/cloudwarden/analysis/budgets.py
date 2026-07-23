@@ -3,7 +3,7 @@
 FinOps is descriptive until a budget makes it prescriptive. A :class:`Budget` sets a
 limit over a scope (a subscription/account/group/tag/team) and a period (monthly or
 quarterly), plus ordered **threshold rules** (e.g. 50/80/100% of actual, or a
-forecast-basis rule once M14.4 lands). Every pipeline run (and scheduler tick)
+forecast-basis rule that fires off the M14.4 projection). Every pipeline run (and scheduler tick)
 evaluates actual — and, when available, forecast — spend against each budget.
 
 Two invariants shape the design:
@@ -100,8 +100,9 @@ def crossed_rules(
     """Rules whose threshold is met by the relevant metric, ordered ascending.
 
     An ``actual`` rule is compared to ``actual_pct``; a ``forecast`` rule to
-    ``forecast_pct`` — and is skipped entirely when no forecast is available (M14.4
-    not yet landed), so a forecast rule never fires off actual spend.
+    ``forecast_pct`` — and is skipped entirely when no forecast is available (the scope
+    has no forecast dimension, or none was computed), so a forecast rule never fires
+    off actual spend.
     """
     crossed: list[ThresholdRule] = []
     for rule in rules:
@@ -127,7 +128,9 @@ def _default_spend(session: Session, budget: dict[str, Any], start: dt.date, end
 
 
 def _no_forecast(*_args: Any, **_kwargs: Any) -> float | None:
-    # Forecasting arrives in M14.4; until then no budget has a forecast metric.
+    # Default when no forecast source is injected (e.g. forecasting disabled): no
+    # budget carries a forecast metric. The pipeline injects
+    # ``forecast.forecast_for_budget`` so the forecasted-to-exceed rule fires (M14.4).
     return None
 
 
