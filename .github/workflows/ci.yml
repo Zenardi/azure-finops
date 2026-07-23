@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Nightly scale/perf regression gate (issue #55 / M13.5) + on-demand runs. The
+  # `perf` job below is gated to these two events, so it never blocks PRs.
+  schedule:
+    - cron: "0 3 * * *"  # 03:00 UTC nightly
+  workflow_dispatch:
 
 # Cancel superseded runs on the same ref to save CI minutes.
 concurrency:
@@ -1506,3 +1511,42 @@ jobs:
           # Non-zero exit on a finding fails the build (no --exit-code override).
           docker run --rm -v "$PWD":/repo -w /repo zricethezav/gitleaks:v8.18.4 \
             detect --source /repo --no-git --config /repo/.gitleaks.toml --redact --verbose
+
+  # --- Scale & performance: nightly load-test regression gate (issue #55 / M13.5) -- #
+  # Runs the heavy `perf`-marked load tests — a binding across >=50 subscriptions x
+  # >=20 policies driven by the OFFLINE mock runner (no c7n/Azure) — against a real
+  # Postgres (the testcontainers `db` fixture; Docker is available on ubuntu-latest).
+  # SKIPPED on pull_request/push (non-blocking on PRs); on the nightly `schedule` (and
+  # manual `workflow_dispatch`) it BLOCKS — a budget breach fails the job. The default
+  # `-m 'not perf'` in pyproject keeps these OUT of the backend job; `-m perf` here
+  # overrides it. Results are uploaded as an artifact. See backend/tests/perf/README.md.
+  perf:
+    name: Performance (scale load test — nightly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements-dev.txt
+          # Same c7n CVE overrides the image ships (issue #58), so the perf run
+          # exercises the cryptography/PyJWT versions we actually ship.
+          pip install --no-deps --upgrade -r backend/requirements-overrides-security.txt
+      - name: Run scale/perf load test (blocking on regression)
+        env:
+          PERF_RESULTS_DIR: ${{ github.workspace }}/perf-results
+        run: |
+          mkdir -p "$PERF_RESULTS_DIR"
+          pytest backend/tests/perf -m perf -v
+      - name: Upload perf results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-results
+          path: perf-results/
+          if-no-files-found: warn

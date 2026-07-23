@@ -23,7 +23,13 @@ select = ["E", "F", "I", "W", "B", "UP"]
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
 pythonpath = ["backend"]
-addopts = "-q"
+# Exclude the scale/perf load tests from the default (PR) run — they are heavy and
+# run in the nightly `perf` CI job (`pytest backend/tests/perf -m perf`). See M13.5
+# / issue #55 and backend/tests/perf/README.md.
+addopts = "-q -m 'not perf'"
+markers = [
+    "perf: scale/performance load tests — excluded from the default run; executed nightly (see backend/tests/perf/README.md)",
+]
 
 [tool.coverage.run]
 source = ["cloudwarden"]

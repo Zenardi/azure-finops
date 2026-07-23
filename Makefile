@@ -32,6 +32,9 @@ trivy: ## Local pre-commit security gate — Trivy fs + config (HIGH/CRITICAL) v
 mutation: ## Mutation testing on core modules (mutmut; config in backend/setup.cfg)
 	cd backend && mutmut run; mutmut results
 
+perf: ## Run the scale/perf load tests (issue #55/M13.5; needs Docker for testcontainers)
+	pytest backend/tests/perf -m perf -v
+
 lock: ## Regenerate the hash-pinned runtime lockfile (backend/requirements.lock; needs pip-tools)
 	cd backend && pip-compile --generate-hashes --output-file=requirements.lock requirements.txt
 
@@ -68,4 +71,4 @@ initdb: ## Create/upgrade the database schema (in-container)
 seed: ## Run one mock pipeline inside the backend container
 	$(COMPOSE) run --rm backend run --mock
 
-.PHONY: help install install-dev lint fmt test coverage trivy mutation lock sbom secrets run-mock up up-core up-all down logs initdb seed
+.PHONY: help install install-dev lint fmt test coverage trivy mutation perf lock sbom secrets run-mock up up-core up-all down logs initdb seed

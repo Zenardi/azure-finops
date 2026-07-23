@@ -27,6 +27,20 @@ All notable changes to this project are documented here. Format loosely follows
   100% coverage on the gated modules).
 
 ### Added
+- **Scale & performance testing (#55, M13.5).** Adds a repeatable **load test**
+  (`backend/tests/perf/test_execution_scale.py`) that proves policy execution
+  scales: it runs a binding across **≥50 subscriptions × ≥20 policies** (≥1000
+  executions) through the real execution + persistence path (`run_binding`) with
+  an **offline mock runner** (no c7n/Azure/network) against a throwaway Postgres,
+  and asserts the run completes within a documented **time budget** (120s — a
+  regression ceiling, not an SLA; a full run is ~7s locally) and **memory ceiling**
+  (256 MB peak heap). Throughput is recorded as a JSON artifact, and a pure
+  **regression detector** flags a drop beyond a 25% tolerance. The heavy tests
+  carry a `perf` marker and are **excluded from the default PR run** (`addopts =
+  -m 'not perf'` in `pyproject.toml`); a new **`perf`** CI job runs them **nightly**
+  (cron) + on `workflow_dispatch` — **skipped on PRs** (non-blocking), **blocking
+  on a budget breach nightly** — and uploads the results. `make perf` runs them
+  locally. See [`backend/tests/perf/README.md`](backend/tests/perf/README.md).
 - **Observability: metrics, tracing & structured logs (#54, M13.4).** Adds the
   operability layer behind the governance platform. **Metrics:** a `GET /metrics`
   endpoint exposes Prometheus counters for **policy executions**
