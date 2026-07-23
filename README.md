@@ -951,6 +951,7 @@ make test      # offline unit tests (no DB/Azure needed)
 make coverage  # full suite + 95% gate (spins an ephemeral Postgres via testcontainers; needs Docker)
 make trivy     # security gate — Trivy fs + config scan, HIGH/CRITICAL (needs Docker)
 make mutation  # mutation testing on core modules (mutmut, advisory)
+make perf      # scale/perf load test — binding across >=50 subs x >=20 policies (needs Docker)
 make secrets   # secret-scan the tree with gitleaks — fail on any finding (needs Docker)
 make sbom      # generate an SBOM (SPDX JSON) for the backend image (needs Docker)
 make lock      # regenerate the hash-pinned backend/requirements.lock (needs pip-tools)
@@ -976,6 +977,21 @@ compares it to the documented threshold (**≥80 % of tested mutants killed**). 
 is **advisory** for now (`continue-on-error: true` — non-blocking) and flips to
 blocking once the score stabilises above the threshold. Run it locally with
 `make mutation` (needs `mutmut`, installed via `requirements-dev.txt`).
+
+### Scale & performance testing (nightly)
+
+A repeatable **load test** proves policy execution scales: it runs a binding
+across **≥50 subscriptions × ≥20 policies** (≥1000 executions) through the real
+execution + persistence path (`run_binding`) with an **offline mock runner** (no
+c7n/Azure) against a throwaway Postgres, and asserts the run finishes inside a
+documented **time budget** (120s — a regression ceiling, not an SLA; a full run
+is ~7s locally) and **memory ceiling** (256 MB peak heap). Throughput is recorded
+as a JSON artifact so regressions are visible over time. These tests carry a
+`perf` marker and are **excluded from the default PR run** (`addopts = -m 'not
+perf'`); a dedicated **`perf`** job in `.github/workflows/ci.yml` runs them
+**nightly** (cron) and on manual `workflow_dispatch` — **skipped on PRs**
+(non-blocking), **blocking on a budget breach nightly**. Run locally with `make
+perf`. Details + the budget: [`backend/tests/perf/README.md`](backend/tests/perf/README.md).
 
 ### Security scanning (Trivy CVE gate)
 
