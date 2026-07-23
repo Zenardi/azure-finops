@@ -142,7 +142,8 @@ new delivery code path is added.
 Scope resolution runs over `cost_snapshots` (amortized): `subscription`/`account`
 filter the subscription directly, `account_group` resolves to its member
 subscriptions. `tag`/`team` scope **degrades** to a subscription match on the scope
-value until the M14.5 tag dimension lands (documented, non-surprising).
+value (the M14.5 tag dimension backs showback reporting below; wiring it into budget
+scope resolution is a later step).
 
 **Surfaced in:**
 
@@ -266,6 +267,49 @@ transaction: a failure is logged and swallowed, never failing a collection run.
 
 Forecasting is toggled by `FORECAST_ENABLED` (default on), weekday seasonality by
 `FORECAST_SEASONALITY`, and is Azure-first behind the `CloudProvider` abstraction.
+
+## Showback / chargeback by tag → team (M14.5)
+
+CloudWarden *enforces* a cost-allocation tag (the cost / tag-compliance packs) but until
+now never *reported spend by it* — cost rolled up only by resource / type / region. This
+adds **cost allocation**: group spend by an arbitrary tag key (`CostCenter` / `Owner` /
+`Team` / `env`), map tag values to the existing **teams** model, and surface an explicit
+**unallocated** bucket for untagged spend.
+
+**Tags become a cost dimension.** Each run enriches cost rows with the owning resource's
+tags from inventory (matched on the **lower-cased** `resource_id`, since the Cost API and
+Resource Graph can disagree on casing) and persists them on `cost_snapshots.tags` (JSONB).
+Aggregation groups by `tags ->> :key` — the tag key is a **bound parameter**, so an
+arbitrary/hostile key is a harmless JSONB lookup, never executed SQL (injection-safe).
+
+Three invariants shape the allocation:
+
+- **Nothing is silently dropped.** Spend with no value for the grouping key lands in an
+  explicit `unallocated` bucket — the number you actually want to drive down — never
+  discarded.
+- **Reconciliation.** `allocated + unallocated == total` always holds; the report is a
+  partition of the scoped spend.
+- **Team-scoped.** Tag values map to teams (`SHOWBACK_TEAM_MAP`, a JSON
+  `{tag_value: team}`); a team-scoped principal (RBAC on) sees **only** its own
+  allocation — the query filters to that team's tag values, so another team's spend (and
+  the unallocated bucket) never leak. An admin / RBAC-off caller sees the full partition.
+
+**Shared costs.** A designated `SHOWBACK_SHARED_TAG_VALUE` (e.g. a `shared` platform
+bucket) is redistributed across the other allocated buckets — **even** (equal) or
+**proportional** (by each bucket's own spend, `SHOWBACK_SPLIT_METHOD`) — preserving the
+total.
+
+**Surfaced in:**
+
+| Where | What |
+|-------|------|
+| `GET /api/costs/by-tag` · `GET /api/costs/showback` | the allocation report — per tag value (mapped to a team) + the unallocated bucket, reconciling to the scoped total (RBAC `showback:read`, team-scoped) |
+| `GET /api/costs/showback/export?format=csv\|json` | the same, streamed one row per tag value (reuses the governance-export streamer) |
+| **Showback** web page | allocation table + total/allocated/unallocated cards + CSV/JSON export |
+| *FinOps — Cost Overview* Grafana dashboard | *Showback — cost by owner (tag)* bar panel (over the `v_cost_by_tag` view) |
+
+The grouping key defaults to `SHOWBACK_TAG_KEY` (`owner` — the mock inventory's tag; set
+to `CostCenter` in production). Azure-first behind the `CloudProvider` abstraction.
 
 ## AI executive summary
 

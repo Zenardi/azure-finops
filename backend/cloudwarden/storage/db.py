@@ -75,6 +75,17 @@ FROM cost_snapshots
 WHERE cost_type = 'Amortized' AND usage_date >= (CURRENT_DATE - INTERVAL '30 days')
 GROUP BY location, currency;
 
+-- Showback/chargeback dimension (M14.5): unnest each cost row's tags into
+-- (tag_key, tag_value) rows so Grafana can group spend by any tag key. Untagged
+-- spend surfaces via the '(unallocated)' key so it is never silently dropped.
+CREATE OR REPLACE VIEW v_cost_by_tag AS
+SELECT COALESCE(t.key, '(unallocated)') AS tag_key,
+       COALESCE(NULLIF(t.value, ''), '(unallocated)') AS tag_value,
+       c.subscription_id, c.usage_date, c.cost, c.currency
+FROM cost_snapshots c
+LEFT JOIN LATERAL jsonb_each_text(c.tags) AS t(key, value) ON TRUE
+WHERE c.cost_type = 'Amortized' AND c.usage_date >= (CURRENT_DATE - INTERVAL '30 days');
+
 CREATE OR REPLACE VIEW v_latest_recommendations AS
 SELECT * FROM recommendations
 WHERE run_id = (

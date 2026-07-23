@@ -68,6 +68,7 @@ READ_PERMISSIONS: tuple[str, ...] = (
     "budget:read",
     "anomaly:read",
     "forecast:read",
+    "showback:read",
 )
 
 DEFAULT_ROLES: dict[str, dict] = {

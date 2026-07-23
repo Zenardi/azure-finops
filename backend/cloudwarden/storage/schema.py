@@ -570,6 +570,9 @@ class CostSnapshot(Base):
     service_name: Mapped[str | None] = mapped_column(String(128))
     cost: Mapped[float] = mapped_column(Numeric(18, 6), default=0)
     currency: Mapped[str] = mapped_column(String(8), default="USD")
+    # Resource tags (enriched from inventory) — the showback/chargeback cost dimension
+    # (M14.5). Grouped by an arbitrary tag key via ``tags ->> :key`` (bound, injectable-safe).
+    tags: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     collected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

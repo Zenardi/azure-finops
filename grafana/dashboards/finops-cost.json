@@ -5,7 +5,7 @@
   "timezone": "",
   "editable": true,
   "schemaVersion": 39,
-  "version": 4,
+  "version": 5,
   "refresh": "",
   "time": { "from": "now-30d", "to": "now" },
   "templating": { "list": [] },
@@ -209,6 +209,29 @@
           "format": "table",
           "rawQuery": true,
           "rawSql": "SELECT as_of, scope_type, scope_value, horizon, period_end, point, lower, upper, actual_to_date, ROUND(mape::numeric, 1) AS mape_pct, confidence, model, currency FROM cost_forecasts WHERE (scope_type, scope_value, horizon, as_of) IN (SELECT scope_type, scope_value, horizon, MAX(as_of) FROM cost_forecasts GROUP BY scope_type, scope_value, horizon) ORDER BY as_of DESC, scope_type, horizon LIMIT 100"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "barchart",
+      "title": "Showback — cost by owner (tag)",
+      "description": "Amortized spend allocated by the `owner` tag over 30 days (M14.5). '(unallocated)' is untagged spend — surfaced, never dropped. Change the tag_key filter to allocate by CostCenter/Team/env.",
+      "datasource": { "type": "postgres", "uid": "finops_pg" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 52 },
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "color": { "mode": "palette-classic" } },
+        "overrides": []
+      },
+      "options": { "orientation": "horizontal", "showValue": "auto", "xTickLabelRotation": 0, "legend": { "showLegend": false } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "finops_pg" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT tag_value, SUM(cost) AS cost FROM v_cost_by_tag WHERE tag_key = 'owner' GROUP BY tag_value ORDER BY cost DESC"
         }
       ]
     }

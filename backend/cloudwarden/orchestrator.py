@@ -78,16 +78,21 @@ def _new_run_id() -> str:
 
 
 def _enrich_cost(cost_rows: list[CostRow], resources: list[ResourceRecord]) -> None:
-    by_id = {r.resource_id: r for r in resources}
+    # Azure resource ids are case-insensitive, but the Cost API and Resource Graph can
+    # return different casing for the same id — index by lower-cased id so enrichment
+    # (type/location/group and, for showback, tags — M14.5) matches regardless of case.
+    by_id = {r.resource_id.lower(): r for r in resources if r.resource_id}
     for c in cost_rows:
         if not c.resource_id:
             continue
-        res = by_id.get(c.resource_id)
+        res = by_id.get(c.resource_id.lower())
         if res is None:
             continue
         c.resource_type = c.resource_type or res.type
         c.location = c.location or res.location
         c.resource_group = c.resource_group or res.resource_group
+        if not c.tags and res.tags:
+            c.tags = dict(res.tags)
 
 
 def run_pipeline(

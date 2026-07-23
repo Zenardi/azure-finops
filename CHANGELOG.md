@@ -6,6 +6,26 @@ All notable changes to this project are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **Showback / chargeback by tag → team (#138, M14.5).** CloudWarden enforced a
+  cost-allocation tag but never reported spend by it. A new `analysis/allocation.py`
+  groups spend by an arbitrary tag key (`CostCenter` / `Owner` / `Team` / `env`), maps
+  tag values to the existing **teams** model, and surfaces an explicit **unallocated**
+  bucket for untagged spend — the thing you actually drive down. Cost rows are now
+  enriched with the owning resource's inventory tags (matched on the **lower-cased**
+  `resource_id`) and persisted on a new `cost_snapshots.tags` (JSONB) dimension;
+  aggregation groups by `tags ->> :key` with the tag key a **bound parameter**
+  (injection-safe — a hostile key is a harmless lookup, never executed SQL). Invariants:
+  untagged spend is never silently dropped, `allocated + unallocated == total` always
+  reconciles, and a team-scoped principal sees **only** its own allocation (other teams'
+  spend and the unallocated bucket never leak). A designated shared tag value can be
+  split across the others — **even** or **proportional** (by spend). New
+  `GET /api/costs/by-tag`, `GET /api/costs/showback`, and a streaming
+  `GET /api/costs/showback/export` (CSV/JSON, reusing the governance-export streamer),
+  all RBAC-guarded (`showback:read`); a **Showback** web page (allocation table +
+  allocated/unallocated cards + export); a `v_cost_by_tag` Grafana view + *cost by owner*
+  panel. Config: `SHOWBACK_TAG_KEY` (default `owner`), `SHOWBACK_TEAM_MAP`,
+  `SHOWBACK_SHARED_TAG_VALUE`, `SHOWBACK_SPLIT_METHOD`. Azure-first behind the
+  `CloudProvider` abstraction. Strict TDD, 100% coverage on the new module, ruff clean.
 - **Cost forecasting (#137, M14.4).** Reporting says what we spent; leadership keeps
   asking where we'll **land**. A new `analysis/forecast.py` projects spend to
   **month-end** and **quarter-end** per scope (`total` / `subscription` / `service`) over

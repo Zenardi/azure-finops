@@ -386,6 +386,39 @@ export function listForecasts(
   );
 }
 
+// Showback / chargeback by tag → team (M14.5).
+export interface Allocation {
+  tag_value: string; // the tag value, or "unallocated"
+  team: string | null;
+  cost: number;
+  share: number; // 0..1
+}
+
+export interface ShowbackReport {
+  key: string;
+  total: number;
+  allocated: number;
+  unallocated: number;
+  currency: string;
+  allocations: Allocation[];
+}
+
+/** The showback/chargeback allocation report for a tag `key` over the trailing `days`. */
+export function getShowback(
+  params: { key?: string; days?: number } = {},
+): Promise<ShowbackReport> {
+  const qs = new URLSearchParams();
+  if (params.key) qs.set("key", params.key);
+  qs.set("days", String(params.days ?? 30));
+  return apiGet<ShowbackReport>(`/api/costs/showback?${qs.toString()}`);
+}
+
+/** Absolute URL of the streaming showback export (CSV/JSON), for a download link. */
+export function showbackExportUrl(key: string, days = 30, fmt: "csv" | "json" = "csv"): string {
+  const qs = new URLSearchParams({ key, days: String(days), format: fmt });
+  return `${API_BASE}/api/costs/showback/export?${qs.toString()}`;
+}
+
 /**
  * Query string for the day/cloud-scoped cost endpoints (`/api/costs/summary`,
  * `by-type`, `by-region` — #116). Always sends `days`; omits `provider` for the

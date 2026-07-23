@@ -458,6 +458,103 @@ def list_forecasts(
     return {"forecasts": forecasts}
 
 
+# --- Showback / chargeback by tag → team (M14.5) -------------------------------
+def _showback_report(request: Request, *, key: str | None, days: int):
+    """Compute the team-scoped allocation report for the request's principal.
+
+    Resolves the grouping tag key (defaulting to ``SHOWBACK_TAG_KEY``), the trailing
+    ``days`` window, the tag→team map, and the principal's visible tag values, then
+    aggregates ``cost_snapshots`` by tag. A team-scoped principal sees only its own
+    allocation; an admin / RBAC-off caller sees the full partition incl. unallocated."""
+    from datetime import date, timedelta
+
+    from ..analysis import allocation
+
+    settings = get_settings()
+    key = key or settings.showback_tag_key
+    end = date.today()
+    start = end - timedelta(days=days)
+    team_map = teams.team_map_from_settings(settings)
+    principal = rbac.principal_from_request(request)
+    with session_scope() as session:
+        visible = teams.visible_tag_values(
+            session, principal, team_map=team_map, rbac_enabled=settings.rbac_enabled
+        )
+        report = allocation.compute_showback(
+            session,
+            key=key,
+            start=start,
+            end=end,
+            team_map=team_map,
+            visible_tag_values=visible,
+            shared_value=settings.showback_shared_tag_value or None,
+            split=settings.showback_split_method,
+        )
+    return report
+
+
+@app.get(
+    "/api/costs/by-tag",
+    dependencies=[Depends(rbac.require_permission("showback:read"))],
+)
+def cost_by_tag(
+    request: Request,
+    key: str | None = Query(default=None),
+    days: int = Query(default=30, ge=1, le=365),
+) -> dict[str, Any]:
+    """Spend grouped by a tag ``key`` (default ``SHOWBACK_TAG_KEY``) over the trailing
+    ``days``, with the allocated/unallocated partition. RBAC-guarded (``showback:read``)
+    and team-scoped — a team member sees only its own allocation."""
+    from ..analysis import allocation
+
+    return allocation.report_public(_showback_report(request, key=key, days=days))
+
+
+@app.get(
+    "/api/costs/showback",
+    dependencies=[Depends(rbac.require_permission("showback:read"))],
+)
+def showback(
+    request: Request,
+    key: str | None = Query(default=None),
+    days: int = Query(default=30, ge=1, le=365),
+) -> dict[str, Any]:
+    """The showback/chargeback allocation report — per tag value (mapped to a team),
+    with an explicit **unallocated** bucket for untagged spend, reconciling to the
+    scoped total. Team-scoped by the caller's principal (``showback:read``)."""
+    from ..analysis import allocation
+
+    return allocation.report_public(_showback_report(request, key=key, days=days))
+
+
+@app.get(
+    "/api/costs/showback/export",
+    dependencies=[Depends(rbac.require_permission("showback:read"))],
+)
+def showback_export(
+    request: Request,
+    key: str | None = Query(default=None),
+    days: int = Query(default=30, ge=1, le=365),
+    fmt: str = Query("csv", alias="format"),
+) -> StreamingResponse:
+    """Stream the showback allocation as CSV or JSON (one row per tag value), reusing
+    the governance-export streamer. ``?format`` other than csv/json → ``400``. Team-
+    scoped by principal like the report above (``showback:read``)."""
+    from ..analysis import allocation
+
+    if fmt not in reporting.EXPORT_FORMATS:
+        raise HTTPException(status_code=400, detail=f"unsupported format: {fmt!r}")
+    report = _showback_report(request, key=key, days=days)
+    rows = allocation.report_rows(report)
+    media_type = "text/csv" if fmt == "csv" else "application/json"
+    headers = {"Content-Disposition": f'attachment; filename="showback-{report.key}.{fmt}"'}
+    return StreamingResponse(
+        reporting.stream_records(rows, allocation.SHOWBACK_EXPORT_COLUMNS, fmt),
+        media_type=media_type,
+        headers=headers,
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Governance-as-code: policy validation + Custodian schema (M1.3)
 # --------------------------------------------------------------------------- #

@@ -54,6 +54,43 @@ def _json_stream(session, batch_size: int) -> Iterator[str]:
     yield "]"
 
 
+def stream_records(
+    rows: Iterator[dict[str, Any]] | list[dict[str, Any]],
+    columns: list[str] | tuple[str, ...],
+    fmt: str = "csv",
+) -> Iterator[str]:
+    """Stream an iterable of dict ``rows`` as ``csv`` or ``json`` text chunks.
+
+    ``csv`` yields the ``columns`` header then one line per row; ``json`` yields a single
+    array, one object at a time. Reused by the showback export (M14.5). Raises
+    ``ValueError`` for an unsupported format.
+    """
+    if fmt == "csv":
+        return _csv_records(rows, columns)
+    if fmt == "json":
+        return _json_records(rows)
+    raise ValueError(f"unsupported export format: {fmt!r}")
+
+
+def _csv_records(rows: Any, columns: Any) -> Iterator[str]:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(columns)
+    yield _drain(buf)
+    for row in rows:
+        writer.writerow([_cell(row.get(col)) for col in columns])
+        yield _drain(buf)
+
+
+def _json_records(rows: Any) -> Iterator[str]:
+    yield "["
+    first = True
+    for row in rows:
+        yield ("" if first else ",") + json.dumps(row, default=str)
+        first = False
+    yield "]"
+
+
 def _drain(buf: io.StringIO) -> str:
     value = buf.getvalue()
     buf.seek(0)

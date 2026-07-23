@@ -146,6 +146,19 @@ class Settings(BaseSettings):
     # Model weekday seasonality (weekend/weekday spend effects) before projecting.
     forecast_seasonality: bool = True
 
+    # --- Showback / chargeback by tag → team (M14.5) ---
+    # Default tag key spend is allocated by (CostCenter / Owner / Team / env). The mock
+    # inventory tags resources with `owner`, so that is the out-of-box demo key.
+    showback_tag_key: str = "owner"
+    # JSON object mapping tag value → team name, e.g. {"web-team": "Platform"}. A team
+    # member then sees only the allocation for their team's tag values. Blank = no map.
+    showback_team_map: str = "{}"
+    # A tag value treated as *shared* cost, redistributed across the other allocated
+    # buckets; blank = no shared split.
+    showback_shared_tag_value: str = ""
+    # How a shared bucket is split across the others: even | proportional (by spend).
+    showback_split_method: str = "even"
+
     # --- Analysis windows & thresholds ---
     metric_lookback_days: int = 14
     cost_lookback_days: int = 30
