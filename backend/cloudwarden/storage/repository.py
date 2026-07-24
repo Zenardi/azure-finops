@@ -2001,6 +2001,127 @@ def upsert_cost_snapshots(session: Session, rows: list[m.CostRow]) -> int:
     return len(payload)
 
 
+def upsert_carbon_snapshots(session: Session, rows: list[m.EmissionRow]) -> int:
+    """Upsert normalized carbon/emissions rows (M14.16). Idempotent on the natural key
+    ``(usage_date, provider, resource_id, service_name, grain)`` — a re-collect of the same
+    period replaces the estimate instead of duplicating it. Service/region-grain rows carry
+    an empty ``resource_id`` so the key stays unique without a fabricated resource id."""
+    if not rows:
+        return 0
+    dedup: dict[tuple, m.EmissionRow] = {}
+    for c in rows:
+        key = (
+            c.usage_date,
+            c.provider or "azure",
+            c.resource_id or "",
+            c.service_name or "",
+            c.grain or "resource",
+        )
+        dedup[key] = c
+    payload = [
+        {
+            "usage_date": c.usage_date,
+            "provider": c.provider or "azure",
+            "resource_id": c.resource_id or "",
+            "service_name": c.service_name or "",
+            "grain": c.grain or "resource",
+            "account_id": c.account_id,
+            "location": c.location,
+            "gco2e": c.gco2e,
+            "source": c.source,
+            "method": c.method,
+        }
+        for c in dedup.values()
+    ]
+    step = _rows_per_statement(columns=10)  # carbon_snapshots row = 10 bound params
+    for start in range(0, len(payload), step):
+        chunk = payload[start : start + step]
+        stmt = pg_insert(schema.CarbonSnapshot).values(chunk)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["usage_date", "provider", "resource_id", "service_name", "grain"],
+            set_={
+                "account_id": stmt.excluded.account_id,
+                "location": stmt.excluded.location,
+                "gco2e": stmt.excluded.gco2e,
+                "source": stmt.excluded.source,
+                "method": stmt.excluded.method,
+            },
+        )
+        session.execute(stmt)
+    return len(payload)
+
+
+def _carbon_scope(days: int, provider: str | None) -> tuple[str, dict[str, Any]]:
+    """WHERE fragment + bound params scoping ``carbon_snapshots`` to a day window and
+    (optionally) one cloud (M14.16). Both are bound parameters — injection-safe.
+    ``provider`` None/"" means all clouds."""
+    sql = " WHERE usage_date >= CURRENT_DATE - make_interval(days => :days)"
+    params: dict[str, Any] = {"days": days}
+    if provider:
+        sql += " AND provider = :provider"
+        params["provider"] = provider
+    return sql, params
+
+
+def carbon_summary(session: Session, days: int = 30, provider: str | None = None) -> dict[str, Any]:
+    """Total emissions (gCO2e) over ``days`` with per-provider / per-service breakdowns,
+    the recorded provider sources, and the methodology caveat (M14.16). All estimates."""
+    from ..analysis.carbon import METHODOLOGY_CAVEAT
+
+    where, params = _carbon_scope(days, provider)
+    total_rows = _rows(
+        session, "SELECT COALESCE(SUM(gco2e), 0) AS total FROM carbon_snapshots" + where, **params
+    )
+    total = float(total_rows[0]["total"]) if total_rows else 0.0
+    by_provider = _rows(
+        session,
+        "SELECT provider, SUM(gco2e) AS gco2e FROM carbon_snapshots"
+        + where
+        + " GROUP BY provider ORDER BY gco2e DESC",
+        **params,
+    )
+    by_service = _rows(
+        session,
+        "SELECT service_name, SUM(gco2e) AS gco2e FROM carbon_snapshots"
+        + where
+        + " GROUP BY service_name ORDER BY gco2e DESC",
+        **params,
+    )
+    sources = _rows(
+        session,
+        "SELECT DISTINCT source FROM carbon_snapshots"
+        + where
+        + " AND source <> '' ORDER BY source",
+        **params,
+    )
+    return {
+        "total_gco2e": round(total, 4),
+        "total_kgco2e": round(total / 1000.0, 4),
+        "by_provider": [
+            {"provider": r["provider"], "gco2e": float(r["gco2e"])} for r in by_provider
+        ],
+        "by_service": [
+            {"service_name": r["service_name"], "gco2e": float(r["gco2e"])} for r in by_service
+        ],
+        "sources": [r["source"] for r in sources],
+        "methodology": METHODOLOGY_CAVEAT,
+    }
+
+
+def carbon_by_resource(
+    session: Session, limit: int = 50, provider: str | None = None
+) -> list[dict[str, Any]]:
+    """Per-resource emissions footprint, worst first (M14.16). Resource-grain only — a
+    service/region-grain estimate is never presented as per-resource precision."""
+    sql = "SELECT * FROM v_carbon_by_resource"
+    params: dict[str, Any] = {"limit": limit}
+    if provider:
+        sql += " WHERE provider = :provider"
+        params["provider"] = provider
+    sql += " ORDER BY gco2e DESC LIMIT :limit"
+    return _rows(session, sql, **params)
+
+
 def cost_by_tag(
     session: Session,
     *,

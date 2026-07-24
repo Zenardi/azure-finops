@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     # An enabled credential at least this many days old is flagged as stale (>= 2x -> high).
     iam_stale_credential_days: int = 90
 
+    # --- Carbon / emissions footprint (M14.16 sustainability) ---
+    # Collect each provider's emissions (Azure Emissions Impact Dashboard, AWS Customer
+    # Carbon Footprint Tool, GCP Carbon Footprint), normalize to grams CO2e (gCO2e) and
+    # surface alongside cost + waste. All figures are provider-reported ESTIMATES. Verified
+    # in mock mode (FINOPS_MOCK=1) — the recorded emissions fixtures replay with no live cloud.
+    carbon_enabled: bool = True
+
     # --- Memory metrics (optional) ---
     log_analytics_workspace_id: str | None = None
 

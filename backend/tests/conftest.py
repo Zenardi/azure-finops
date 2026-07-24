@@ -16,6 +16,7 @@ os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://finops:finops@localh
 
 _TABLES = (
     "runs, resources, assets, asset_events, asset_relationships, cost_snapshots, "
+    "carbon_snapshots, "
     "utilization_samples, "
     "utilization_rollups, advisor_recommendations, recommendations, remediation_actions, "
     "commitment_inventory, commitment_coverage, "

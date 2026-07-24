@@ -395,6 +395,49 @@ saving.
 (`samples > 0`). A workload or namespace with no usage row is *unknown* — never flagged on
 the absence of data.
 
+## Carbon / emissions footprint (M14.16)
+
+Sustainability is a governance dimension, so CloudWarden surfaces a **carbon footprint**
+beside cost. Each provider's sustainability data is collected and **normalized to a single
+unit — grams CO2e (`gCO2e`)** — with the provider source recorded on every row:
+
+| Cloud | Source | Native unit |
+|-------|--------|-------------|
+| Azure | Emissions Impact Dashboard | tonnes CO2e (tCO2e) |
+| AWS | Customer Carbon Footprint Tool (CCFT) | metric tons (MTCO2e) |
+| GCP | Carbon Footprint (BigQuery export) | kilograms CO2e (kgCO2e) |
+
+**Everything is an estimate.** Figures are provider-reported estimates carrying an explicit
+methodology caveat — never presented as measured fact, consistent with the platform's
+honesty principle. The caveat is returned on every summary and rendered in the UI + Grafana.
+
+**Normalization & grain.** Collectors convert the native unit to gCO2e (`analysis/carbon.py`)
+and record the source. **Grain is never over-stated:** where a provider attributes emissions
+to a resource, the row is kept at `resource` grain and joined to inventory (type/location);
+where the provider only reports at **service/region** grain (e.g. AWS CCFT), that grain is
+kept as-is — the collector never fabricates per-resource precision the provider didn't give.
+
+**Wasted emissions.** An idle/orphaned resource surfaces its **wasted emissions** next to its
+wasted spend: `carbon.wasted_emissions(recommendations, emissions)` ties a waste
+recommendation to the resource's attributed gCO2e (resource-grain only — a service-grain
+estimate produces no per-resource waste line).
+
+```bash
+# Collect emissions per account and persist a snapshot (mock mode replays the fixtures)
+POST /api/carbon/collect?provider=all|azure|aws|gcp
+
+# Read the footprint — total gCO2e + per-provider/service breakdown, sources, caveat
+GET  /api/carbon/summary?days=30&provider=all
+# Per-resource footprint (resource-grain only), worst first
+GET  /api/carbon/by-resource?limit=50&provider=all
+```
+
+Collection is also folded into the main pipeline run (best-effort, gated by
+`CARBON_ENABLED`, default on). Emissions are stored as `carbon_snapshots` and surfaced via
+the `v_carbon_by_provider` / `v_carbon_by_resource` views — the Grafana **Carbon footprint by
+cloud** panel and the **Cost explorer** page's emissions panel read from them. Verified in
+mock mode (`FINOPS_MOCK=1`) with injected clients — no live cloud is contacted.
+
 ## Scheduled governance report
 
 Set `GOVERNANCE_REPORT_ENABLED=true` and run the scheduler to write a timestamped

@@ -1,0 +1,22 @@
+{
+  "_comment": "Recorded AWS Customer Carbon Footprint Tool (CCFT) emissions (M14.16). CCFT reports in metric tons CO2e (MTCO2e == tonne) at SERVICE / REGION grain — it does not attribute to individual resources — so every row is kept at service grain (no resource id) and never fabricated to per-resource precision. Rows are keyed by days_ago so they stay inside the query window. Placeholder account 123456789012 is retargeted on ingest. Estimates only.",
+  "unit": "mtco2e",
+  "source": "AWS Customer Carbon Footprint Tool",
+  "account_id": "123456789012",
+  "rows": [
+    {
+      "days_ago": 1,
+      "service_name": "Amazon EC2",
+      "location": "us-east-1",
+      "grain": "service",
+      "amount": 0.31
+    },
+    {
+      "days_ago": 1,
+      "service_name": "Amazon S3",
+      "location": "us-east-1",
+      "grain": "service",
+      "amount": 0.02
+    }
+  ]
+}

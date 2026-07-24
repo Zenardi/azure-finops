@@ -91,3 +91,17 @@ class CloudProvider(Protocol):
         is an injectable directory/IAM client; tests pass a fake so nothing touches a live
         cloud.
         """
+
+    def collect_carbon(
+        self, *, account: AccountContext | None = None, client: Any | None = None
+    ) -> list[Any]:
+        """Collect this cloud's carbon/emissions footprint (M14.16 sustainability).
+
+        Returns :class:`~cloudwarden.models.EmissionRow` objects normalized to a single unit
+        (grams CO2e) with the provider source recorded (Azure Emissions Impact Dashboard,
+        AWS Customer Carbon Footprint Tool, GCP Carbon Footprint export), so the emissions
+        dimension is provider-agnostic. Grain is never over-stated — service/region grain is
+        kept when the provider doesn't attribute to a resource. Every figure is a
+        provider-reported **estimate**. ``client`` is an injectable sustainability-API
+        client; tests pass a fake so nothing touches a live cloud.
+        """

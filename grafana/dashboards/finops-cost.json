@@ -295,6 +295,26 @@
           "rawSql": "SELECT (tags->>'cluster') || '/' || (tags->>'namespace') AS metric, SUM(cost) AS value FROM cost_snapshots WHERE provider = 'kubernetes' AND cost_type = 'Allocated' AND usage_date >= CURRENT_DATE - INTERVAL '30 days' GROUP BY 1 ORDER BY value DESC"
         }
       ]
+    },
+    {
+      "id": 12,
+      "type": "barchart",
+      "title": "Carbon footprint by cloud (30d, gCO2e)",
+      "description": "Estimated emissions footprint per cloud (M14.16 sustainability), normalized to grams CO2e (gCO2e). Reads v_carbon_by_provider (a 30-day sum of carbon_snapshots). Every figure is a provider-reported ESTIMATE (Azure Emissions Impact Dashboard / AWS Customer Carbon Footprint Tool / GCP Carbon Footprint) — directional, not measured fact. Empty until POST /api/carbon/collect runs.",
+      "datasource": { "type": "postgres", "uid": "finops_pg" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 78 },
+      "fieldConfig": { "defaults": { "unit": "massg", "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "options": { "orientation": "horizontal", "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "finops_pg" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT provider AS metric, gco2e AS value FROM v_carbon_by_provider ORDER BY value DESC"
+        }
+      ]
     }
   ]
 }

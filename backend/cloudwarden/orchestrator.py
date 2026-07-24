@@ -111,6 +111,18 @@ def _collect_cost(
     return registry.get(name).collect_cost(account=account, client=client)
 
 
+def _collect_carbon(account: AccountContext | None, *, client: Any = None) -> list[Any]:
+    """Dispatch emissions collection to the account's provider collector (M14.16).
+
+    Resolves the owning cloud from the account context and calls its ``collect_carbon``
+    capability, so an AWS/GCP account collects AWS/GCP emissions — each row already tagged
+    with its provider and normalized to gCO2e — behind the same seam as cost."""
+    from .providers import registry
+
+    name = account.provider if account is not None else "azure"
+    return registry.get(name).collect_carbon(account=account, client=client)
+
+
 def collect_costs(
     accounts: list[AccountContext], *, clients: dict[str, Any] | None = None
 ) -> list[CostRow]:
@@ -335,6 +347,70 @@ def run_identity(providers: list[str] | None = None) -> dict[str, int]:
             )
     counts = {"identity_principals": len(principals), "identity_findings": written}
     logger.info("identity collection: %s", counts)
+    return counts
+
+
+def _carbon_accounts(providers: list[str] | None = None) -> list[AccountContext]:
+    """Default account contexts for the carbon-capable clouds (M14.16)."""
+    from .providers import registry
+
+    settings = get_settings()
+    names = providers or ["azure", "aws", "gcp"]
+    accounts: list[AccountContext] = []
+    for name in names:
+        provider = registry.get(name)
+        account_id = provider.default_account_id(settings) or ""
+        accounts.append(provider.account_context(account_id=account_id))
+    return accounts
+
+
+def collect_carbon(
+    accounts: list[AccountContext], *, clients: dict[str, Any] | None = None
+) -> list[Any]:
+    """Collect emissions per account, provider-dispatched (M14.16).
+
+    Per-account isolation so a single cloud failing never sinks the fan-out — mirroring
+    ``collect_identity``. Returns the flat list of normalized ``EmissionRow``s behind the
+    injectable sustainability clients. Every figure is a provider-reported estimate."""
+    from .providers import registry
+
+    clients = clients or {}
+    rows: list[Any] = []
+    for account in accounts:
+        try:
+            provider = registry.get(account.provider)
+            rows.extend(
+                provider.collect_carbon(account=account, client=clients.get(account.provider))
+            )
+        except Exception:  # noqa: BLE001 - per-account isolation, never fail the fan-out
+            logger.warning("carbon collection failed for %s", account.account_id, exc_info=True)
+    return rows
+
+
+def carbon_snapshot(providers: list[str] | None = None) -> dict[str, Any]:
+    """The emissions picture for the API/analysis: normalized rows + a summary (M14.16).
+
+    Computed on demand (mock mode replays the recorded emissions fixtures); every figure is
+    a provider-reported estimate carrying a methodology caveat. :func:`run_carbon` persists
+    it for Grafana + the cost page trend."""
+    from .analysis import carbon
+
+    rows = collect_carbon(_carbon_accounts(providers))
+    return {"rows": [r.model_dump() for r in rows], "summary": carbon.summarize(rows)}
+
+
+def run_carbon(providers: list[str] | None = None) -> dict[str, int]:
+    """Collect emissions across the carbon-capable clouds and persist a snapshot (M14.16).
+
+    Normalize each provider's emissions to gCO2e and upsert on the natural key so a re-collect
+    replaces the period's estimate without duplicating. Advisory/estimate only — nothing is
+    mutated in any cloud. Read back via the carbon summary / by-resource endpoints + Grafana."""
+    init_db()
+    rows = collect_carbon(_carbon_accounts(providers))
+    with session_scope() as session:
+        written = repo.upsert_carbon_snapshots(session, rows)
+    counts = {"carbon_rows": written, "carbon_sources": len({r.provider for r in rows})}
+    logger.info("carbon collection: %s", counts)
     return counts
 
 
@@ -566,6 +642,19 @@ def run_pipeline(
                 counts["drift_alerts"] = summary["notifications_sent"]
             except Exception:  # noqa: BLE001 - drift detection is best-effort
                 logger.warning("drift detection failed for run %s", run_id, exc_info=True)
+        # Carbon / emissions footprint (M14.16): collect this account's provider emissions,
+        # normalize to gCO2e, attribute to the collected inventory where the provider reports
+        # at resource grain (service/region grain kept otherwise), and persist alongside cost.
+        # All figures are provider-reported estimates. Best-effort — never sinks a run.
+        if settings.carbon_enabled:
+            try:
+                from .analysis import carbon
+
+                emissions = carbon.attribute(_collect_carbon(subscription), resources)
+                with session_scope() as session:
+                    counts["carbon_rows"] = repo.upsert_carbon_snapshots(session, emissions)
+            except Exception:  # noqa: BLE001 - carbon collection is best-effort
+                logger.warning("carbon collection failed for run %s", run_id, exc_info=True)
         with session_scope() as session:
             repo.finish_run(session, run_id, status="succeeded")
     except Exception as exc:  # noqa: BLE001 - recorded then re-raised

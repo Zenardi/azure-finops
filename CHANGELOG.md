@@ -6,6 +6,27 @@ All notable changes to this project are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **Carbon / emissions footprint — sustainability (#149, M14.16).** CloudWarden had no carbon
+  dimension. This adds an **emissions footprint** beside cost: each provider's sustainability
+  data (Azure **Emissions Impact Dashboard**, AWS **Customer Carbon Footprint Tool**, GCP
+  **Carbon Footprint** export) is collected behind an **injectable** client and **normalized to a
+  single unit — grams CO2e (`gCO2e`)** — with the provider **source recorded** on every row
+  (`analysis/carbon.py`). **Grain is never over-stated:** a provider that attributes to a resource
+  is kept at `resource` grain and joined to inventory (type/location); one that reports only at
+  **service/region** grain (e.g. AWS CCFT) keeps that grain — the collector never fabricates
+  per-resource precision. Idle/orphaned resources surface their **wasted emissions** next to
+  wasted spend (`carbon.wasted_emissions`, resource-grain only). Emissions persist to a new
+  `carbon_snapshots` table (upsert on the natural key — a re-collect replaces, never duplicates)
+  and are read via `GET /api/carbon/summary` (total gCO2e + per-provider/service breakdown,
+  sources, methodology caveat) and `GET /api/carbon/by-resource` (both provider-filterable);
+  `POST /api/carbon/collect` runs a scan, and the main pipeline folds collection in best-effort
+  (gated by `CARBON_ENABLED`, default on). Surfaced via the `v_carbon_by_provider` /
+  `v_carbon_by_resource` views — a Grafana **Carbon footprint by cloud** panel and a **Cost
+  explorer** emissions panel. **Every figure is a provider-reported estimate** carrying an
+  explicit methodology caveat — never presented as measured fact. Verified end-to-end in mock
+  mode (`FINOPS_MOCK=1`) with injected clients — no live cloud contacted. Strict TDD; ≥95% line
+  coverage on new/changed code (the new carbon modules at 100%); ruff clean; Trivy no new
+  HIGH/CRITICAL.
 - **ChatOps interactive approvals — Slack / Teams (#148, M14.15).** CloudWarden already
   *sent* to Slack/Teams, but approvals were **UI-only** — an operator got pinged, then had to
   leave chat to act. This adds **interactive Approve/Reject** in chat: a pending remediation

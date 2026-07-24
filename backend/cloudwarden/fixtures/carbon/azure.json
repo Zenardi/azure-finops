@@ -1,0 +1,31 @@
+{
+  "_comment": "Recorded Azure Emissions Impact Dashboard emissions (M14.16). Scope-2 estimates in tonnes CO2e (tCO2e). Rows are keyed by days_ago (not an absolute date) so they always land inside the query window, mirroring the mock cost collector. Two resource-grain rows attribute to inventory (vm-web-01, disk-orphan-01 — the orphaned disk also drives the wasted-emissions tie-in); the Azure Monitor row is kept at SERVICE grain because the dashboard reports it without a resource id — never fabricated to per-resource. Placeholder subscription 00000000-... is retargeted to the onboarded subscription on ingest. Estimates only.",
+  "unit": "tco2e",
+  "source": "Azure Emissions Impact Dashboard",
+  "account_id": "00000000-0000-0000-0000-000000000000",
+  "rows": [
+    {
+      "days_ago": 1,
+      "resource_id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-app/providers/Microsoft.Compute/virtualMachines/vm-web-01",
+      "service_name": "Virtual Machines",
+      "location": "westeurope",
+      "grain": "resource",
+      "amount": 0.42
+    },
+    {
+      "days_ago": 1,
+      "resource_id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-app/providers/Microsoft.Compute/disks/disk-orphan-01",
+      "service_name": "Storage",
+      "location": "westeurope",
+      "grain": "resource",
+      "amount": 0.05
+    },
+    {
+      "days_ago": 1,
+      "service_name": "Azure Monitor",
+      "location": "westeurope",
+      "grain": "service",
+      "amount": 0.012
+    }
+  ]
+}
