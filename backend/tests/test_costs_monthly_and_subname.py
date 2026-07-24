@@ -82,8 +82,22 @@ def test_cost_monthly_window_excludes_older_months(db) -> None:
 def test_cost_monthly_provider_filter(db) -> None:
     _seed_cost(_mid_month(0), 100.0, "azure", "sub-az")
     _seed_cost(_mid_month(0), 7.0, "aws", "sub-aws")
-    assert _monthly(months=3, provider="azure")["series"][0]["cost"] == 100.0
-    assert _monthly(months=3, provider="aws")["series"][0]["cost"] == 7.0
+    # The window is zero-filled, so index by month rather than series position.
+    az = {p["month"]: p["cost"] for p in _monthly(months=3, provider="azure")["series"]}
+    aws = {p["month"]: p["cost"] for p in _monthly(months=3, provider="aws")["series"]}
+    assert az[_ym(0)] == 100.0
+    assert aws[_ym(0)] == 7.0
+
+
+def test_cost_monthly_zero_fills_gaps(db) -> None:
+    # Data in the current month and two months back, but a GAP at one month back.
+    _seed_cost(_mid_month(0), 100.0, "azure", "sub-az")
+    _seed_cost(_mid_month(2), 10.0, "azure", "sub-az")
+    result = _monthly(months=3)
+    # All 3 months in the window are present (the gap is filled with 0), oldest→newest.
+    assert [p["month"] for p in result["series"]] == [_ym(2), _ym(1), _ym(0)]
+    by_month = {p["month"]: p["cost"] for p in result["series"]}
+    assert by_month == {_ym(2): 10.0, _ym(1): 0.0, _ym(0): 100.0}
 
 
 def test_cost_monthly_clamps_months(db) -> None:

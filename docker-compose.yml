@@ -23,6 +23,10 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://finops:finops@db:5432/finops
       APP_DATA_DIR: /data
+      # Mock vs. real data switch. Defaults to 1 (fixtures — no cloud contacted) so the
+      # stack runs out of the box; `make up LIVE=1` exports FINOPS_MOCK=0 to collect real
+      # data from the credentials in .env. `environment:` overrides the value in env_file.
+      FINOPS_MOCK: ${FINOPS_MOCK:-1}
       # Cost anomaly detection (M14.3): seed a demo spike into the mock cost series so
       # the FINOPS_MOCK stack surfaces a detectable anomaly out of the box.
       ANOMALY_MOCK_SPIKE: ${ANOMALY_MOCK_SPIKE:-true}

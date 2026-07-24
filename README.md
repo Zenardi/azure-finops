@@ -909,12 +909,21 @@ Prerequisites: Docker with Compose v2 (`docker compose`).
 
 ```bash
 cp .env.example .env            # defaults to FINOPS_MOCK=1
-make up                         # db (TimescaleDB) + backend (API) + grafana + web UI
-make seed                       # runs one mock pipeline → populates the DB
+make up                         # starts the full stack AND seeds mock data in one step
 ```
 
-`make up` (equivalently a plain `docker compose up -d`) starts the **full stack**,
-including the frontend. Use `make up-core` for db + backend + grafana only.
+`make up` starts the **full stack** (db (TimescaleDB) + backend (API) + grafana +
+web UI) and then **populates it with mock/fake data automatically** — no separate
+`make seed` needed. Pass `make up LIVE=1` to skip the mock seed and collect **real
+data from the credentials in `.env`** instead (see *Live mode* below). `make seed`
+still exists to re-run the mock pipeline on demand. Use `make up-core` for db +
+backend + grafana only.
+
+> **Schema changed since your DB volume was created?** `Base.metadata.create_all()`
+> adds new tables but never alters existing ones, so a long-lived `pgdata` volume can
+> miss newly-added columns (symptom: pages show `TypeError: Failed to fetch`, backed by
+> a hidden HTTP 500 `column ... does not exist`). Reset with `docker compose down -v &&
+> make up` — mock data regenerates.
 
 Then open:
 
@@ -948,9 +957,10 @@ supports `command: ["scheduler"]`.
 1. Create the read SP and assign **Reader + Cost Management Reader + Monitoring
    Reader** on the subscription (+ **Log Analytics Reader** for memory metrics).
 2. In `.env`: set `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID/CLIENT_ID/CLIENT_SECRET`,
-   `FINOPS_MOCK=0`, and an AI key (`ANTHROPIC_API_KEY`) or `AI_BASE_URL` for a
-   local model.
-3. `make up && make seed`.
+   and an AI key (`ANTHROPIC_API_KEY`) or `AI_BASE_URL` for a local model. Leaving
+   `FINOPS_MOCK=1` is fine — `make up LIVE=1` overrides it to `0` for the run.
+3. `make up LIVE=1` — brings the stack up in live mode and runs one real collection
+   from `.env` (only clouds that have credentials are collected). Re-run anytime.
 
 For remediation (Phase 5), additionally set the write SP (`AZURE_REMEDIATION_*`),
 `REMEDIATION_ENABLED=true`, and `ALLOWED_RESOURCE_GROUPS`. Remediation defaults

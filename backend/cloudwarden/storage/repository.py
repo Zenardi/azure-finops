@@ -3598,30 +3598,42 @@ def cost_trend(session: Session, days: int = 30) -> dict[str, Any]:
 
 def cost_monthly(session: Session, months: int = 6, provider: str | None = None) -> dict[str, Any]:
     """Amortized spend bucketed by calendar month over the last ``months`` months
-    (including the current, partial one). Only months that actually have data are
-    returned. The provider filter mirrors ``_cost_scope``; ``months`` is clamped to
-    1..24 and every value is a bound parameter (injection-safe)."""
+    (including the current, partial one). The window is **zero-filled** — a month with
+    no cost rows is returned at ``0`` so the series always spans the selected range and
+    the chart's period control reads as intended (a sparse history no longer collapses
+    to only the populated months). A completely empty window returns an empty series so
+    the UI can show its "no data yet" state rather than a row of flat ``0`` bars. The
+    provider filter reads the native ``cost_snapshots.provider`` column (M14.11); every
+    value is a bound parameter (injection-safe) and ``months`` is clamped to 1..24."""
     months = min(max(months, 1), 24)
-    where = (
-        " WHERE cost_type = 'Amortized' "
-        "AND usage_date >= date_trunc('month', CURRENT_DATE) - make_interval(months => :back)"
-    )
+    # The provider filter lives in the LEFT JOIN's ON clause, not a WHERE — a WHERE on
+    # the (nullable) joined side would drop the zero-filled months back out.
+    join_filter = ""
     params: dict[str, Any] = {"back": months - 1}
     if provider:
-        where += " AND provider = :provider"  # native cost_snapshots.provider (M14.11)
+        join_filter = " AND c.provider = :provider"
         params["provider"] = provider
     rows = _rows(
         session,
-        "SELECT to_char(date_trunc('month', usage_date), 'YYYY-MM') AS month, "
-        "SUM(cost) AS cost, MAX(currency) AS currency FROM cost_snapshots"
-        + where
-        + " GROUP BY date_trunc('month', usage_date) ORDER BY date_trunc('month', usage_date)",
+        "SELECT to_char(m.month, 'YYYY-MM') AS month, "
+        "COALESCE(SUM(c.cost), 0) AS cost, MAX(c.currency) AS currency "
+        "FROM generate_series("
+        "date_trunc('month', CURRENT_DATE) - make_interval(months => :back), "
+        "date_trunc('month', CURRENT_DATE), interval '1 month') AS m(month) "
+        "LEFT JOIN cost_snapshots c "
+        "ON date_trunc('month', c.usage_date) = m.month AND c.cost_type = 'Amortized'"
+        + join_filter
+        + " GROUP BY m.month ORDER BY m.month",
         **params,
     )
+    # currency is NULL only for a zero-filled (no-row) month; if no month has one, the
+    # whole window is empty — surface that as an empty series, not N flat 0-bars.
+    if not any(r["currency"] for r in rows):
+        return {"months": months, "currency": "USD", "series": []}
     series = [
         {"month": r["month"], "cost": float(r["cost"]), "currency": r["currency"]} for r in rows
     ]
-    currency = series[-1]["currency"] if series else "USD"
+    currency = next((s["currency"] for s in reversed(series) if s["currency"]), "USD")
     return {"months": months, "currency": currency, "series": series}
 
 
