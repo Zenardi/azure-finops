@@ -3862,7 +3862,7 @@ def list_remediation_actions(
     return _rows(
         session,
         "SELECT ra.id, ra.action_type, ra.dry_run, ra.status, ra.error, ra.requested_at, "
-        "ra.executed_at, ra.actor, ra.source, ra.policy_id, ra.policy_match_id, "
+        "ra.executed_at, ra.actor, ra.decided_via, ra.source, ra.policy_id, ra.policy_match_id, "
         "COALESCE(r.resource_id, ra.params->>'resource_id') AS resource_id, r.category "
         "FROM remediation_actions ra "
         "LEFT JOIN recommendations r ON ra.recommendation_id = r.id "

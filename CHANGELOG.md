@@ -6,6 +6,27 @@ All notable changes to this project are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **ChatOps interactive approvals — Slack / Teams (#148, M14.15).** CloudWarden already
+  *sent* to Slack/Teams, but approvals were **UI-only** — an operator got pinged, then had to
+  leave chat to act. This adds **interactive Approve/Reject** in chat: a pending remediation
+  approval is rendered as an actionable message whose buttons carry a **signed action id**
+  (`HMAC-SHA256(action_id · decision · nonce)` under `CHATOPS_SIGNING_SECRET`), so approve/reject
+  can't be forged or swapped. The inbound endpoints (`POST /api/chatops/slack`, `POST
+  /api/chatops/teams`) **verify the transport signature** (Slack's `v0` HMAC over `v0:{ts}:{body}`
+  with a timestamp-skew replay guard; Teams' `Authorization: HMAC {base64}` over the raw body),
+  **resolve the chat user → RBAC principal** (`CHATOPS_PRINCIPAL_MAP`; an unmapped user is a
+  403), **enforce `remediation:approve`** and apply the decision through the *existing*
+  `remediation/approval.py` workflow — no parallel path, no bypass. A bad signature or stale
+  timestamp is a 401, an unknown action a 404, and an already-decided action (a **replay**) a
+  409. Every decision is **audited** with its actor + channel, the source message is **updated**
+  with the outcome, and the decision *source* (`slack` / `teams` / UI) surfaces on the action as
+  `decided_via` in the Remediation audit trail. New `notify/interactive.py` (signed ids +
+  actionable Slack Block Kit / Teams Adaptive Card builders + signature verification + inbound
+  handlers) reuses the injectable notification transport seam; signing secrets are read from
+  config and **never logged**. Advisory-safe and verified end-to-end in mock mode
+  (`FINOPS_MOCK=1`) with injected transports + clock — no live Slack/Teams contacted. Strict TDD;
+  ≥95% line coverage on new/changed code (the new module at 100%); ruff clean; Trivy no new
+  HIGH/CRITICAL.
 - **Identity / IAM risk & exposure posture (#147, M14.14).** CloudWarden governed resources
   but had **no identity posture** — the most common real-world breach paths (over-permissioned
   principals, stale credentials, missing MFA, public exposure) were invisible. This adds an

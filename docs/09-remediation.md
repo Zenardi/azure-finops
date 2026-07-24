@@ -64,6 +64,17 @@ POST /api/remediation/{action_id}/reject?actor=you
 
 `approve`/`reject` return 409 if the action was already decided.
 
+## ChatOps interactive approvals (M14.15)
+
+A pending action can also be decided **from chat**. CloudWarden posts an actionable
+Approve/Reject message to Slack/Teams; clicking a button POSTs a signature-verified
+interaction to `POST /api/chatops/slack` / `POST /api/chatops/teams`, which resolves the
+chat user to an RBAC principal, enforces `remediation:approve`, and calls the *same*
+`approve_action` / `reject_action` above — no parallel path, no bypass. The decision
+*source* is recorded on the action as `decided_via` (`slack` / `teams`, else UI) and
+shown in the audit table. See [10 · Notifications](10-notifications.md#chatops-interactive-approvals-m1415)
+for the signing-secret setup and the chat-user → principal mapping.
+
 ## Waivers suppress enforcement (M14.9)
 
 A resource covered by an **active, in-scope waiver** ([governance-as-code](07-governance-as-code.md#exemptions--waivers--m149))
@@ -86,7 +97,7 @@ GET /api/remediation?limit=100&source=recommendation|policy|binding
 ```
 
 The **Remediation** page renders this as an audit table (timestamp, source, action
-type, resource, dry-run flag, status, error).
+type, resource, dry-run flag, status, **decided-via**, error).
 
 ## Recommended rollout
 

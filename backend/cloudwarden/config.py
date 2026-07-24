@@ -112,6 +112,27 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_use_tls: bool = True
 
+    # --- ChatOps interactive approvals (M14.15) ---
+    # A pending-approval message carries Approve/Reject buttons; the inbound interaction
+    # is signature-verified, the chat user is mapped to an RBAC principal, and the
+    # decision flows through the existing remediation approval workflow. Off-by-default
+    # secure posture: an empty transport secret rejects all inbound interactions.
+    # HMAC secret CloudWarden signs its own action ids (buttons) with — NEVER logged.
+    # Empty falls back to ``resolved_session_secret`` so mock/dev needs no extra config.
+    chatops_signing_secret: str = ""
+    # Slack app *signing secret* used to verify inbound ``X-Slack-Signature`` — NEVER
+    # logged. Empty → Slack interactions are rejected (401).
+    slack_signing_secret: str = ""
+    # Teams outgoing-webhook HMAC secret (base64) used to verify the ``Authorization:
+    # HMAC …`` header — NEVER logged. Empty → Teams interactions are rejected (401).
+    teams_signing_secret: str = ""
+    # Reject an inbound interaction whose signed timestamp is older than this (seconds)
+    # — replay protection at the transport layer (Slack carries a request timestamp).
+    chatops_max_skew_seconds: int = 300
+    # JSON object mapping a chat user id → the RBAC principal it resolves to, e.g.
+    # {"U0123": "alice@corp.com"}. A chat user with no mapping cannot decide (403).
+    chatops_principal_map: str = "{}"
+
     # --- Enterprise transports (M8.3) ---
     # Microsoft Teams incoming-webhook URL (used when a channel carries no target).
     teams_webhook_url: str = ""
@@ -310,6 +331,14 @@ class Settings(BaseSettings):
     @property
     def resolved_session_secret(self) -> str:
         return self.session_secret or self.oidc_client_secret or "dev-insecure-session-secret"
+
+    @property
+    def resolved_chatops_secret(self) -> str:
+        """HMAC key CloudWarden signs its ChatOps action ids with (M14.15).
+
+        Falls back to the first-party session secret so mock/dev needs no extra
+        config; set a dedicated ``CHATOPS_SIGNING_SECRET`` in production."""
+        return self.chatops_signing_secret or self.resolved_session_secret
 
     @property
     def _oidc_base(self) -> str:

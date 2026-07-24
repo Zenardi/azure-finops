@@ -49,6 +49,8 @@ def _result(action: schema.RemediationAction) -> dict[str, Any]:
         "status": action.status,
         "message": message,
         "error": action.error,
+        # M14.15: the channel this action was decided through (None=UI, slack/teams=ChatOps).
+        "decided_via": action.decided_via,
         # M14.9: a match suppressed by an active waiver is recorded as ``waived`` with its id.
         "waived": action.status == "waived",
         "waiver_id": waiver_id,
@@ -221,12 +223,21 @@ def queue_policy_action(
     return _result(row)
 
 
-def approve_action(session: Session, action_id: int, *, actor: str | None = None) -> dict[str, Any]:
-    """Approve a pending policy action → execute it (guarded) → record the outcome."""
+def approve_action(
+    session: Session, action_id: int, *, actor: str | None = None, channel: str | None = None
+) -> dict[str, Any]:
+    """Approve a pending policy action → execute it (guarded) → record the outcome.
+
+    ``channel`` records the decision *source* (M14.15): ``None`` for a UI/API decision,
+    or ``slack`` / ``teams`` when a ChatOps-resolved principal approved from chat. The
+    decision still flows through this one workflow — ChatOps is not a bypass.
+    """
     action = _pending_or_raise(session, action_id)
     action.status = "approved"
     if actor:
         action.actor = actor
+    if channel:
+        action.decided_via = channel
     session.flush()
     result = _execute_policy_action(session, action)
     # M13.4: count the remediation action by type + its terminal status for /metrics.
@@ -234,12 +245,19 @@ def approve_action(session: Session, action_id: int, *, actor: str | None = None
     return result
 
 
-def reject_action(session: Session, action_id: int, *, actor: str | None = None) -> dict[str, Any]:
-    """Reject a pending policy action — it is never executed."""
+def reject_action(
+    session: Session, action_id: int, *, actor: str | None = None, channel: str | None = None
+) -> dict[str, Any]:
+    """Reject a pending policy action — it is never executed.
+
+    ``channel`` records the decision *source* (M14.15) — ``slack`` / ``teams`` for a
+    ChatOps rejection, else ``None`` for a UI/API decision."""
     action = _pending_or_raise(session, action_id)
     action.status = "rejected"
     if actor:
         action.actor = actor
+    if channel:
+        action.decided_via = channel
     action.executed_at = datetime.now(UTC)
     # M13.4: a rejected action is still a decision — count it for /metrics.
     observability.record_remediation_action(action.action_type, action.status)

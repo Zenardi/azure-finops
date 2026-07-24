@@ -69,3 +69,43 @@ DELETE /api/bindings/{binding_id}/notifications/{notification_id}
 3. **Wire** channel + template to the relevant bindings.
 4. On each binding run, violations dispatch automatically; delivery result
    (dispatched / status / error) is recorded — a failure is logged, not fatal.
+
+## ChatOps interactive approvals (M14.15)
+
+CloudWarden already *sends* to Slack/Teams; ChatOps closes the loop. A pending
+**remediation approval** (see [09 · Remediation](09-remediation.md)) is rendered as
+an **actionable** message — an Approve and a Reject button — so an operator decides
+without leaving chat. The decision flows through the *same* approval workflow the UI
+uses (`remediation:approve` is still enforced); ChatOps is **not** a bypass, and it
+never mutates anything on its own.
+
+### How a decision is secured
+
+Each button carries a **signed action id** — `HMAC-SHA256(action_id · decision ·
+nonce)` under `CHATOPS_SIGNING_SECRET` — so approve/reject can't be forged or swapped.
+When a button is clicked, the transport POSTs the interaction back and the inbound
+endpoint:
+
+1. **verifies the transport signature** — Slack's `v0` HMAC over `v0:{ts}:{body}` with
+   `SLACK_SIGNING_SECRET` (+ a `CHATOPS_MAX_SKEW_SECONDS` timestamp window that rejects
+   stale/replayed requests); Teams' `Authorization: HMAC {base64}` over the raw body
+   with `TEAMS_SIGNING_SECRET`. A bad signature or stale timestamp → **401**;
+2. **verifies our own action-id signature** (tamper → **401**);
+3. **resolves the chat user → RBAC principal** via `CHATOPS_PRINCIPAL_MAP`
+   (`{"U0123":"alice@corp.com"}`). An unmapped user → **403**;
+4. **enforces `remediation:approve`** for that principal, then applies the decision
+   through the existing workflow — unknown action → **404**, already-decided (a
+   **replay**) → **409**;
+5. **audits** the decision (actor + channel + target) and **updates the source
+   message** with the outcome.
+
+```bash
+POST /api/chatops/slack     # inbound Slack block-actions interaction
+POST /api/chatops/teams     # inbound Teams Action.Submit interaction
+```
+
+Configure the app signing secrets in [`.env`](../.env.example) — they are **never
+logged**. Point the Slack app's interactivity request URL / Teams outgoing webhook at
+the endpoints above. Verified end-to-end in mock mode (`FINOPS_MOCK=1`) with injected
+transports — no live Slack/Teams is contacted. The decision *source* (`slack` / `teams`
+/ UI) surfaces in the **Remediation** audit trail (`decided_via`).
