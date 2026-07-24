@@ -2189,34 +2189,45 @@ def _carbon_provider(provider: str) -> str | None:
     raise HTTPException(status_code=400, detail=f"invalid provider: {provider}")
 
 
-@app.get("/api/carbon/summary")
+@app.get(
+    "/api/carbon/summary",
+    dependencies=[Depends(rbac.require_permission("carbon:read"))],
+)
 def carbon_summary(days: int = 30, provider: str = "all") -> dict[str, Any]:
     """Total carbon/emissions footprint (gCO2e) over ``days`` with per-provider/service
     breakdowns, the recorded sources and the methodology caveat (M14.16). Every figure is a
-    provider-reported **estimate**. Empty until a scan is run (``POST /api/carbon/collect``)."""
+    provider-reported **estimate**. Empty until a scan is run (``POST /api/carbon/collect``).
+    RBAC-guarded (``carbon:read``)."""
     prov = _carbon_provider(provider)
     days = max(1, min(days, 365))
     with session_scope() as session:
         return repo.carbon_summary(session, days=days, provider=prov)
 
 
-@app.get("/api/carbon/by-resource")
+@app.get(
+    "/api/carbon/by-resource",
+    dependencies=[Depends(rbac.require_permission("carbon:read"))],
+)
 def carbon_by_resource(limit: int = 50, provider: str = "all") -> list[dict[str, Any]]:
     """Per-resource emissions footprint, worst first (M14.16). Resource-grain only — a
-    service/region-grain estimate is never presented as per-resource precision."""
+    service/region-grain estimate is never presented as per-resource precision.
+    RBAC-guarded (``carbon:read``)."""
     prov = _carbon_provider(provider)
     limit = max(1, min(limit, 500))
     with session_scope() as session:
         return repo.carbon_by_resource(session, limit=limit, provider=prov)
 
 
-@app.post("/api/carbon/collect")
+@app.post(
+    "/api/carbon/collect",
+    dependencies=[Depends(rbac.require_permission("carbon:collect"))],
+)
 def carbon_collect(provider: str = "all") -> dict[str, int]:
     """Collect emissions per account and persist a snapshot (M14.16).
 
     In mock mode replays the recorded emissions fixtures; a re-scan **replaces** the period's
     estimate (never duplicates). Estimate/advisory only — nothing is mutated in any cloud.
-    Provider scope validated (unknown → ``400``)."""
+    Provider scope validated (unknown → ``400``). RBAC-guarded (``carbon:collect``)."""
     from ..orchestrator import run_carbon
 
     prov = _carbon_provider(provider)
