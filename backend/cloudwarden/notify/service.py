@@ -48,6 +48,9 @@ __all__ = [
     "build_waiver_context",
     "DEFAULT_WAIVER_SUBJECT",
     "DEFAULT_WAIVER_BODY",
+    "build_approval_context",
+    "DEFAULT_APPROVAL_SUBJECT",
+    "DEFAULT_APPROVAL_BODY",
     "notify",
 ]
 
@@ -279,6 +282,36 @@ def build_waiver_context(
         "expires_at": expiry,
         "days_left": days_left,
         "requester": requester or "",
+    }
+
+
+# Actionable pending-approval message (M14.15). The ChatOps sender
+# (:mod:`cloudwarden.notify.interactive`) renders these for the message *text* and
+# attaches the Approve/Reject action blocks alongside. Placeholders are the keys
+# :func:`build_approval_context` emits; missing ones render empty.
+DEFAULT_APPROVAL_SUBJECT = "[Approval] {{ action_type }} {{ resource_id }} needs a decision"
+DEFAULT_APPROVAL_BODY = (
+    "Remediation action #{{ action_id }} ({{ action_type }}) on {{ resource_id }} is pending "
+    "approval. Approve to enforce it (guardrailed) or Reject to leave it be — decide right "
+    "here in chat."
+)
+
+
+def build_approval_context(
+    *,
+    action_id: int,
+    action_type: str,
+    resource_id: str | None = None,
+) -> dict[str, Any]:
+    """Assemble the template context for a pending-approval ChatOps message (M14.15).
+
+    Exposes the queued action's id + type and its target resource. Consumed by
+    :data:`DEFAULT_APPROVAL_BODY` / :data:`DEFAULT_APPROVAL_SUBJECT` and any custom
+    template, and by the actionable Slack/Teams blocks that carry the signed decision."""
+    return {
+        "action_id": action_id,
+        "action_type": action_type,
+        "resource_id": resource_id or "",
     }
 
 

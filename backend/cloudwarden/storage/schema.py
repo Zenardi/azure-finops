@@ -743,6 +743,10 @@ class RemediationAction(Base):
     result: Mapped[dict] = mapped_column(JSONB, default=dict)
     error: Mapped[str | None] = mapped_column(Text)
     actor: Mapped[str | None] = mapped_column(String(128))
+    # The channel a human decided this action through (M14.15): ``ui`` (default None),
+    # ``slack`` or ``teams`` for a ChatOps decision. Surfaces the decision *source* in
+    # the remediation audit trail; nullable so pre-M14.15 rows / UI decisions are None.
+    decided_via: Mapped[str | None] = mapped_column(String(16))
 
 
 class NotificationTemplate(Base):

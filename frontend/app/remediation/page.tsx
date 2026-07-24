@@ -28,7 +28,9 @@ export default function Remediation() {
         actions alike. Dry-run is the default; real Azure writes require{" "}
         <code>REMEDIATION_ENABLED=true</code> plus the write service principal, and only for
         allow-listed resource groups (resources tagged <code>finops:exclude</code> or{" "}
-        <code>custodian:exclude</code> are never touched).
+        <code>custodian:exclude</code> are never touched). The <strong>Decided via</strong> column
+        shows where a decision was made — the UI, or an interactive <code>Slack</code> /{" "}
+        <code>Teams</code> ChatOps approval (M14.15).
       </p>
 
       <div className="history-controls">
@@ -48,7 +50,7 @@ export default function Remediation() {
         <thead>
           <tr>
             <th>When</th><th>Source</th><th>Action</th><th>Resource</th><th>Dry-run</th>
-            <th>Status</th><th>Detail</th>
+            <th>Status</th><th>Decided via</th><th>Detail</th>
           </tr>
         </thead>
         <tbody>
@@ -72,12 +74,19 @@ export default function Remediation() {
                   {a.status}
                 </span>
               </td>
+              <td>
+                {a.decided_via ? (
+                  <span className="badge">{a.decided_via}</span>
+                ) : (
+                  <span className="muted">UI</span>
+                )}
+              </td>
               <td className="muted">{a.error || ""}</td>
             </tr>
           ))}
           {actions.length === 0 && !err && (
             <tr>
-              <td colSpan={7} className="muted">
+              <td colSpan={8} className="muted">
                 {source ? `No ${source}-sourced remediation attempts yet.` : "No remediation attempts yet."}
               </td>
             </tr>

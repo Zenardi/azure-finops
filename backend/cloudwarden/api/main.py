@@ -57,6 +57,7 @@ from ..models import (
     ValidateResult,
     WaiverRequest,
 )
+from ..notify import interactive as chatops
 from ..notify.dispatch import KNOWN_TRANSPORTS
 from ..packs import registry as packs
 from ..providers import aws as aws_provider
@@ -2579,6 +2580,31 @@ def reject_remediation(action_id: int, actor: str | None = None) -> dict[str, An
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except remediation.AlreadyDecided as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+# --------------------------------------------------------------------------- #
+# ChatOps interactive approvals (M14.15) — inbound Slack / Teams interactions
+# --------------------------------------------------------------------------- #
+# These endpoints are NOT behind ``require_permission``: the caller is Slack/Teams, not
+# an RBAC principal. Authorization happens *inside* — the transport signature is verified,
+# the chat user is resolved to a principal, and ``remediation:approve`` is enforced there
+# (no bypass). The decision flows through the same approval workflow as the UI/API.
+@app.post("/api/chatops/slack")
+async def chatops_slack(request: Request) -> dict[str, Any]:
+    """Apply a signed Slack Approve/Reject interaction (401/400/403/404/409 on failure)."""
+    raw = await request.body()
+    return chatops.handle_slack_interaction(
+        raw_body=raw, headers=request.headers, settings=get_settings()
+    )
+
+
+@app.post("/api/chatops/teams")
+async def chatops_teams(request: Request) -> dict[str, Any]:
+    """Apply a signed Teams Approve/Reject interaction (401/400/403/404/409 on failure)."""
+    raw = await request.body()
+    return chatops.handle_teams_interaction(
+        raw_body=raw, headers=request.headers, settings=get_settings()
+    )
 
 
 # --------------------------------------------------------------------------- #
