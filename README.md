@@ -42,7 +42,10 @@ backbone:
   (over-privilege, unused principals, stale credentials, missing MFA, public exposure) with a
   reproducible 0-100 score and evidence-backed findings — advisory only (M14.14), approve
   pending remediations **right in Slack/Teams** via signature-verified, RBAC-gated
-  **ChatOps** interactions that flow through the existing approval workflow (M14.15), and review
+  **ChatOps** interactions that flow through the existing approval workflow (M14.15), surface a
+  **carbon / emissions footprint** beside cost — each cloud's sustainability data normalized to
+  grams CO2e with wasted emissions on idle resources, all provider-reported **estimates**
+  (M14.16), and review
   the full **execution history**. A
   cross-cloud **AssetDB** tracks every resource
   (config, relationships, change history), with **posture and execution-health

@@ -53,7 +53,11 @@ def session_scope() -> Iterator[Session]:
         session.close()
 
 
-HYPERTABLES = [("cost_snapshots", "usage_date"), ("utilization_samples", "ts")]
+HYPERTABLES = [
+    ("cost_snapshots", "usage_date"),
+    ("utilization_samples", "ts"),
+    ("carbon_snapshots", "usage_date"),  # M14.16: emissions time series
+]
 
 _VIEWS_SQL = """
 CREATE OR REPLACE VIEW v_cost_by_resource AS
@@ -322,6 +326,28 @@ SELECT
     COUNT(*) FILTER (WHERE severity = 'low')                        AS low
 FROM identity_findings
 GROUP BY provider, account_id;
+
+-- Carbon / emissions footprint (M14.16 sustainability). All figures are provider-reported
+-- ESTIMATES normalized to grams CO2e (gCO2e). v_carbon_by_provider is the emissions trend
+-- beside cost per cloud. v_carbon_by_resource is the per-resource footprint, restricted to
+-- resource-grain rows so service/region-grain estimates are never presented as per-resource
+-- precision. Empty until the carbon collector persists rows. Estimates only.
+CREATE OR REPLACE VIEW v_carbon_by_provider AS
+SELECT provider,
+       SUM(gco2e)                          AS gco2e,
+       ROUND(SUM(gco2e) / 1000.0, 4)       AS kgco2e
+FROM carbon_snapshots
+WHERE usage_date >= (CURRENT_DATE - INTERVAL '30 days')
+GROUP BY provider;
+
+CREATE OR REPLACE VIEW v_carbon_by_resource AS
+SELECT resource_id, provider, service_name, location,
+       SUM(gco2e)   AS gco2e,
+       MAX(source)  AS source
+FROM carbon_snapshots
+WHERE grain = 'resource' AND resource_id <> ''
+  AND usage_date >= (CURRENT_DATE - INTERVAL '30 days')
+GROUP BY resource_id, provider, service_name, location;
 """
 
 

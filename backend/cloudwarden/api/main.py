@@ -2176,6 +2176,53 @@ def iam_collect(provider: str = "all") -> dict[str, int]:
     return run_identity(_k8s_provider_filter(provider))
 
 
+_CARBON_PROVIDERS = {"azure", "aws", "gcp"}
+
+
+def _carbon_provider(provider: str) -> str | None:
+    """Normalize/validate the carbon ``?provider=`` scope (M14.16); unknown → 400."""
+    normalized = (provider or "all").strip().lower()
+    if normalized in ("", "all"):
+        return None
+    if normalized in _CARBON_PROVIDERS:
+        return normalized
+    raise HTTPException(status_code=400, detail=f"invalid provider: {provider}")
+
+
+@app.get("/api/carbon/summary")
+def carbon_summary(days: int = 30, provider: str = "all") -> dict[str, Any]:
+    """Total carbon/emissions footprint (gCO2e) over ``days`` with per-provider/service
+    breakdowns, the recorded sources and the methodology caveat (M14.16). Every figure is a
+    provider-reported **estimate**. Empty until a scan is run (``POST /api/carbon/collect``)."""
+    prov = _carbon_provider(provider)
+    days = max(1, min(days, 365))
+    with session_scope() as session:
+        return repo.carbon_summary(session, days=days, provider=prov)
+
+
+@app.get("/api/carbon/by-resource")
+def carbon_by_resource(limit: int = 50, provider: str = "all") -> list[dict[str, Any]]:
+    """Per-resource emissions footprint, worst first (M14.16). Resource-grain only — a
+    service/region-grain estimate is never presented as per-resource precision."""
+    prov = _carbon_provider(provider)
+    limit = max(1, min(limit, 500))
+    with session_scope() as session:
+        return repo.carbon_by_resource(session, limit=limit, provider=prov)
+
+
+@app.post("/api/carbon/collect")
+def carbon_collect(provider: str = "all") -> dict[str, int]:
+    """Collect emissions per account and persist a snapshot (M14.16).
+
+    In mock mode replays the recorded emissions fixtures; a re-scan **replaces** the period's
+    estimate (never duplicates). Estimate/advisory only — nothing is mutated in any cloud.
+    Provider scope validated (unknown → ``400``)."""
+    from ..orchestrator import run_carbon
+
+    prov = _carbon_provider(provider)
+    return run_carbon([prov] if prov else None)
+
+
 @app.post("/api/assets/query")
 def query_assets(body: AssetQuery) -> list[dict[str, Any]]:
     """Filter AssetDB via an allow-listed, injection-safe query (M4.2).

@@ -637,6 +637,36 @@ class CostSnapshot(Base):
     )
 
 
+class CarbonSnapshot(Base):
+    """A normalized carbon/emissions estimate for one scope/period (M14.16 sustainability).
+
+    Every provider's emissions (Azure Emissions Impact Dashboard / AWS Customer Carbon
+    Footprint Tool / GCP Carbon Footprint) is normalized to a **single unit — grams CO2e
+    (``gco2e``)** — with the provider ``source`` recorded, so a row is self-describing.
+    ``grain`` is the honesty flag (``resource`` / ``service`` / ``region``): it is part of the
+    natural key because the provider may report the same period at more than one grain, and a
+    service/region-grain row carries an empty ``resource_id`` rather than a fabricated one.
+    Every figure is a provider-reported **estimate** (``method``), never a measured fact."""
+
+    __tablename__ = "carbon_snapshots"
+
+    usage_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    provider: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default="azure", server_default="azure", index=True
+    )
+    resource_id: Mapped[str] = mapped_column(String(512), primary_key=True, default="")
+    service_name: Mapped[str] = mapped_column(String(128), primary_key=True, default="")
+    grain: Mapped[str] = mapped_column(String(16), primary_key=True, default="resource")
+    account_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    location: Mapped[str | None] = mapped_column(String(64), index=True)
+    gco2e: Mapped[float] = mapped_column(Numeric(20, 4), default=0)
+    source: Mapped[str] = mapped_column(String(128), default="")
+    method: Mapped[str] = mapped_column(String(32), default="provider_estimate")
+    collected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class UtilizationSample(Base):
     __tablename__ = "utilization_samples"
 

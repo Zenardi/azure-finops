@@ -216,6 +216,12 @@ class AwsProvider:
 
         return aws_iam.collect_identity(account=account, client=client)
 
+    def collect_carbon(self, *, account: Any | None = None, client: Any | None = None) -> list[Any]:
+        """Collect AWS emissions (Customer Carbon Footprint Tool) as gCO2e rows (M14.16)."""
+        from .carbon import aws as carbon_aws
+
+        return carbon_aws.collect_carbon(account=account, client=client)
+
     # --- M12.2: onboarding, execution, ingestion -------------------------- #
     def validate_account(
         self,

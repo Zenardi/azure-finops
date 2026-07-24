@@ -279,6 +279,44 @@ class IdentityRiskScore(BaseModel):
     findings: list[IdentityFinding] = Field(default_factory=list)
 
 
+class EmissionRow(BaseModel):
+    """A carbon/emissions row from a provider's sustainability data (M14.16).
+
+    Every provider's collector normalizes to this one shape with the figure carried in a
+    **single unit — grams CO2-equivalent (``gco2e``)** — and the provider ``source``
+    recorded, so the emissions dimension is provider-agnostic and self-describing. ``grain``
+    is the honesty flag: ``resource`` when the provider attributes to a specific resource,
+    else ``service`` / ``region`` — the collector never fabricates per-resource precision the
+    provider didn't give. ``resource_type`` is filled by inventory attribution when available.
+    Everything is a provider-reported **estimate** (``method``), never a measured fact."""
+
+    usage_date: date
+    provider: str = "azure"  # owning cloud: azure | aws | gcp
+    account_id: str | None = None
+    resource_id: str | None = None  # set only at resource grain
+    service_name: str | None = None
+    resource_type: str | None = None  # enriched from inventory on attribution
+    location: str | None = None
+    grain: str = "resource"  # resource | service | region — never over-stated
+    gco2e: float = 0.0  # normalized emissions, grams CO2-equivalent
+    source: str = ""  # provider dashboard / methodology the estimate came from
+    method: str = "provider_estimate"  # provider_estimate | estimated
+
+
+class WastedEmission(BaseModel):
+    """The wasted emissions of an idle/orphaned resource, beside its wasted spend (M14.16).
+
+    Ties a waste recommendation (idle disk, orphaned IP, stopped VM, …) to the resource's
+    attributed ``gco2e`` so sustainability waste is surfaced next to cost waste. An estimate,
+    like every carbon figure."""
+
+    resource_id: str
+    category: str
+    wasted_gco2e: float
+    wasted_monthly_cost: float = 0.0
+    currency: str = "USD"
+
+
 class MetricSample(BaseModel):
     resource_id: str
     metric_name: str

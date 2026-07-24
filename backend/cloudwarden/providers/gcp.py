@@ -214,6 +214,12 @@ class GcpProvider:
 
         return gcp_iam.collect_identity(account=account, client=client)
 
+    def collect_carbon(self, *, account: Any | None = None, client: Any | None = None) -> list[Any]:
+        """Collect GCP emissions (Carbon Footprint export) as gCO2e rows (M14.16)."""
+        from .carbon import gcp as carbon_gcp
+
+        return carbon_gcp.collect_carbon(account=account, client=client)
+
     # --- M12.3: onboarding, execution, ingestion -------------------------- #
     def validate_project(
         self,

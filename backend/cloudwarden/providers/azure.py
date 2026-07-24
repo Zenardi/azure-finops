@@ -92,3 +92,9 @@ class AzureProvider:
         from ..azure import identity
 
         return identity.collect_identity(account=account, client=client)
+
+    def collect_carbon(self, *, account: Any | None = None, client: Any | None = None) -> list[Any]:
+        """Collect Azure emissions (Emissions Impact Dashboard) as gCO2e rows (M14.16)."""
+        from .carbon import azure as carbon_azure
+
+        return carbon_azure.collect_carbon(account=account, client=client)

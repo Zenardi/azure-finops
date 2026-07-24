@@ -22,12 +22,25 @@ interface Slice {
   currency?: string;
 }
 
+// Carbon / emissions footprint (M14.16). Every figure is a provider-reported ESTIMATE in
+// grams CO2e (gCO2e); `methodology` is the caveat rendered alongside so it never reads as
+// measured fact.
+interface CarbonSummary {
+  total_gco2e: number;
+  total_kgco2e: number;
+  by_provider: { provider: string; gco2e: number }[];
+  by_service: { service_name: string | null; gco2e: number }[];
+  sources: string[];
+  methodology: string;
+}
+
 export default function Costs() {
   const [byType, setByType] = useState<Slice[]>([]);
   const [byRegion, setByRegion] = useState<Slice[]>([]);
   const [byRes, setByRes] = useState<Slice[]>([]);
   const [anomalies, setAnomalies] = useState<CostAnomaly[]>([]);
   const [forecasts, setForecasts] = useState<CostForecast[]>([]);
+  const [carbon, setCarbon] = useState<CarbonSummary | null>(null);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -55,6 +68,14 @@ export default function Costs() {
           setForecasts(await listForecasts({ scope_type: "total", limit: 8 }));
         } catch {
           /* gated or unavailable — leave the forecast panel hidden */
+        }
+        try {
+          // Carbon/emissions footprint (M14.16) — optional and empty until a scan runs.
+          // Provider-reported estimates; a failure must not break the cost explorer.
+          const c = await apiGet<CarbonSummary>("/api/carbon/summary");
+          if (c && c.total_gco2e > 0) setCarbon(c);
+        } catch {
+          /* unavailable — leave the emissions panel hidden */
         }
       } catch (e) {
         setErr(String(e));
@@ -233,6 +254,45 @@ export default function Costs() {
               );
             })}
           </ul>
+        </section>
+      )}
+
+      {carbon && (
+        <section className="panel" aria-labelledby="co2-h" style={{ marginBottom: 16 }}>
+          <h2 className="panel-title" id="co2-h">
+            Carbon footprint
+          </h2>
+          <p className="sub">
+            Estimated emissions beside spend — normalized to grams CO2e (gCO2e). These are
+            provider-reported <strong>estimates</strong>, not measured values.
+          </p>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 22, fontWeight: 600 }}>
+              {(carbon.total_gco2e / 1_000_000).toFixed(3)} tCO2e
+            </div>
+            <span className="muted" style={{ fontSize: 12 }}>
+              ({carbon.total_kgco2e.toLocaleString()} kgCO2e, last 30 days)
+            </span>
+          </div>
+          <ul style={{ listStyle: "none", margin: "8px 0 0", padding: 0, display: "grid", gap: 4 }}>
+            {carbon.by_provider.map((p) => (
+              <li
+                key={p.provider}
+                style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}
+              >
+                <span>{p.provider}</span>
+                <span className="muted">{(p.gco2e / 1_000_000).toFixed(3)} tCO2e</span>
+              </li>
+            ))}
+          </ul>
+          {carbon.sources.length > 0 && (
+            <p className="muted" style={{ fontSize: 11, marginTop: 8 }}>
+              Sources: {carbon.sources.join(" · ")}
+            </p>
+          )}
+          <p className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+            {carbon.methodology}
+          </p>
         </section>
       )}
 

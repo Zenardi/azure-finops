@@ -1,0 +1,23 @@
+{
+  "_comment": "Recorded GCP Carbon Footprint (BigQuery export) emissions (M14.16). The export reports in kilograms CO2e (kgCO2e) per project / service / region, and can attribute to a resource where the label is present — so one resource-grain row (a Compute Engine instance) attributes to inventory and the Cloud Storage row is kept at SERVICE grain, never fabricated to per-resource. Rows are keyed by days_ago so they stay inside the query window. Placeholder project example-project-123456 is retargeted on ingest. Estimates only.",
+  "unit": "kgco2e",
+  "source": "GCP Carbon Footprint (BigQuery export)",
+  "account_id": "example-project-123456",
+  "rows": [
+    {
+      "days_ago": 1,
+      "resource_id": "//compute.googleapis.com/projects/example-project-123456/zones/us-central1-a/instances/inst-web-1",
+      "service_name": "Compute Engine",
+      "location": "us-central1",
+      "grain": "resource",
+      "amount": 123.5
+    },
+    {
+      "days_ago": 1,
+      "service_name": "Cloud Storage",
+      "location": "us-central1",
+      "grain": "service",
+      "amount": 8.2
+    }
+  ]
+}
