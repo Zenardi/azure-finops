@@ -1,0 +1,115 @@
+{
+  "_comment": "Recorded AWS IAM identity posture (M14.14). One principal per risk archetype (over-privilege, unused, stale-key, missing-mfa, public-exposure) plus a clean least-privilege principal that must produce NO findings. Placeholder account 123456789012 is retargeted to the onboarded account on ingest. Advisory only — nothing here is mutated.",
+  "principals": [
+    {
+      "principal_id": "arn:aws:iam::123456789012:role/OrgAdmin",
+      "display_name": "over-privileged",
+      "principal_type": "role",
+      "account_id": "123456789012",
+      "assignments": [
+        {
+          "role": "AdministratorAccess",
+          "scope": "arn:aws:organizations::123456789012:root",
+          "scope_level": "organization",
+          "permissions": ["*"]
+        }
+      ],
+      "credentials": [],
+      "mfa_enabled": null,
+      "last_activity_days": 3
+    },
+    {
+      "principal_id": "arn:aws:iam::123456789012:user/ci-legacy",
+      "display_name": "unused",
+      "principal_type": "user",
+      "account_id": "123456789012",
+      "assignments": [
+        {
+          "role": "ReadOnlyAccess",
+          "scope": "arn:aws:s3:::reports-bucket",
+          "scope_level": "resource",
+          "permissions": ["s3:GetObject"]
+        }
+      ],
+      "credentials": [],
+      "mfa_enabled": null,
+      "last_activity_days": 140
+    },
+    {
+      "principal_id": "arn:aws:iam::123456789012:user/deploy-bot",
+      "display_name": "stale-cred",
+      "principal_type": "user",
+      "account_id": "123456789012",
+      "assignments": [
+        {
+          "role": "ReadOnlyAccess",
+          "scope": "arn:aws:s3:::artifacts-bucket",
+          "scope_level": "resource",
+          "permissions": ["s3:GetObject"]
+        }
+      ],
+      "credentials": [
+        {"kind": "access_key", "enabled": true, "age_days": 220, "last_used_days": 15}
+      ],
+      "mfa_enabled": true,
+      "last_activity_days": 15
+    },
+    {
+      "principal_id": "arn:aws:iam::123456789012:user/alice",
+      "display_name": "no-mfa",
+      "principal_type": "user",
+      "account_id": "123456789012",
+      "assignments": [
+        {
+          "role": "ReadOnlyAccess",
+          "scope": "arn:aws:s3:::app-bucket",
+          "scope_level": "resource",
+          "permissions": ["s3:GetObject"]
+        }
+      ],
+      "credentials": [
+        {"kind": "password", "enabled": true, "age_days": 20, "last_used_days": 1}
+      ],
+      "mfa_enabled": false,
+      "last_activity_days": 2
+    },
+    {
+      "principal_id": "arn:aws:iam::123456789012:role/AnonymousReports",
+      "display_name": "public",
+      "principal_type": "role",
+      "account_id": "123456789012",
+      "public": true,
+      "exposure_detail": "trust policy allows Principal:* (anonymous assume)",
+      "assignments": [
+        {
+          "role": "AmazonS3ReadOnlyAccess",
+          "scope": "arn:aws:s3:::public-bucket",
+          "scope_level": "resource",
+          "permissions": ["s3:GetObject"]
+        }
+      ],
+      "credentials": [],
+      "mfa_enabled": null,
+      "last_activity_days": null
+    },
+    {
+      "principal_id": "arn:aws:iam::123456789012:user/bob",
+      "display_name": "least-privilege",
+      "principal_type": "user",
+      "account_id": "123456789012",
+      "assignments": [
+        {
+          "role": "ReadOnlyAccess",
+          "scope": "arn:aws:s3:::app-bucket",
+          "scope_level": "resource",
+          "permissions": ["s3:GetObject"]
+        }
+      ],
+      "credentials": [
+        {"kind": "password", "enabled": true, "age_days": 7, "last_used_days": 1}
+      ],
+      "mfa_enabled": true,
+      "last_activity_days": 1
+    }
+  ]
+}

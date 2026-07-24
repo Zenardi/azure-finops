@@ -5,7 +5,7 @@
   "timezone": "",
   "editable": true,
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "refresh": "",
   "time": { "from": "now-30d", "to": "now" },
   "templating": {
@@ -236,6 +236,57 @@
       "targets": [
         { "refId": "A", "datasource": { "type": "postgres", "uid": "finops_pg" }, "editorMode": "code", "format": "table", "rawQuery": true,
           "rawSql": "SELECT ordinal AS \"Ordinal\", control_id AS \"Control\", title AS \"Title\", status AS \"Status\", mapped_policies AS \"Policies\", evaluated_policies AS \"Evaluated\", violations AS \"Violations\", is_gap AS \"Gap\" FROM v_framework_posture WHERE framework LIKE '$framework' ORDER BY ordinal ASC, control_id ASC" }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Identity risk score ($provider)",
+      "description": "Normalized 0-100 identity/IAM risk score (M14.14) — the capped sum of finding weights, mirroring analysis.iam_risk.compute_score. Advisory. Empty until POST /api/iam/collect.",
+      "datasource": { "type": "postgres", "uid": "finops_pg" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 55 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "max": 100, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 30 }, { "color": "red", "value": 60 } ] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": [ "lastNotNull" ], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "postgres", "uid": "finops_pg" }, "editorMode": "code", "format": "table", "rawQuery": true,
+          "rawSql": "SELECT LEAST(100, COALESCE(SUM(weight), 0))::int AS \"Identity risk score\" FROM identity_findings WHERE provider LIKE '$provider'" }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Critical identity findings ($provider)",
+      "description": "Count of critical identity/IAM findings (public exposure, wildcard-at-org over-privilege) (M14.14). Advisory.",
+      "datasource": { "type": "postgres", "uid": "finops_pg" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 55 },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "red" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": [ "lastNotNull" ], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "postgres", "uid": "finops_pg" }, "editorMode": "code", "format": "table", "rawQuery": true,
+          "rawSql": "SELECT COALESCE(COUNT(*) FILTER (WHERE severity = 'critical'), 0) AS \"Critical findings\" FROM identity_findings WHERE provider LIKE '$provider'" }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Identity findings by severity ($provider)",
+      "description": "Ranked identity/IAM risk findings (M14.14): over-privilege, unused principal, stale credential, missing MFA, public exposure — each with its evidence rationale. Advisory only (no identity is mutated). Ordered by severity x blast radius.",
+      "datasource": { "type": "postgres", "uid": "finops_pg" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 61 },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Severity" }, "properties": [
+            { "id": "mappings", "value": [ { "type": "value", "options": { "critical": { "color": "red", "index": 0 }, "high": { "color": "red", "index": 1 }, "medium": { "color": "yellow", "index": 2 }, "low": { "color": "green", "index": 3 } } } ] },
+            { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+            { "id": "color", "value": { "mode": "fixed" } }
+          ] }
+        ]
+      },
+      "options": { "showHeader": true },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "postgres", "uid": "finops_pg" }, "editorMode": "code", "format": "table", "rawQuery": true,
+          "rawSql": "SELECT severity AS \"Severity\", category AS \"Category\", principal_id AS \"Principal\", provider AS \"Cloud\", account_id AS \"Account\", title AS \"Finding\" FROM identity_findings WHERE provider LIKE '$provider' ORDER BY weight * blast_radius DESC, id ASC" }
       ]
     }
   ]

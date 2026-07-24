@@ -38,7 +38,9 @@ backbone:
   namespace cost allocation and workload right-sizing / idle detection (M14.12), overlay
   **compliance frameworks** (SOC 2 / ISO 27001 / PCI / NIST) that roll policy results up per
   control — flagging **unmapped controls as coverage gaps** — and export a **timestamped
-  auditor evidence bundle** (M14.13), and review
+  auditor evidence bundle** (M14.13), score **identity / IAM risk** across clouds
+  (over-privilege, unused principals, stale credentials, missing MFA, public exposure) with a
+  reproducible 0-100 score and evidence-backed findings — advisory only (M14.14), and review
   the full **execution history**. A
   cross-cloud **AssetDB** tracks every resource
   (config, relationships, change history), with **posture and execution-health

@@ -56,6 +56,7 @@ WRITE_PERMISSIONS: tuple[str, ...] = (
     "waiver:approve",
     "guardrail:preview",
     "guardrail:apply",
+    "iam:collect",
 )
 
 # Administrative permissions (managing RBAC itself, and teams — M11.2) — admin only.
@@ -76,6 +77,7 @@ READ_PERMISSIONS: tuple[str, ...] = (
     "forecast:read",
     "showback:read",
     "drift:read",
+    "iam:read",
 )
 
 DEFAULT_ROLES: dict[str, dict] = {

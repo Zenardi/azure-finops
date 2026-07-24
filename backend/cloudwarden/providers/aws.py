@@ -208,6 +208,14 @@ class AwsProvider:
 
         return discovery.discover_clusters(provider=self.name, account=account, client=client)
 
+    def collect_identity(
+        self, *, account: Any | None = None, client: Any | None = None
+    ) -> list[Any]:
+        """Collect AWS IAM principals for IAM-risk posture (M14.14)."""
+        from . import aws_iam
+
+        return aws_iam.collect_identity(account=account, client=client)
+
     # --- M12.2: onboarding, execution, ingestion -------------------------- #
     def validate_account(
         self,

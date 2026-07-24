@@ -66,6 +66,17 @@ class Settings(BaseSettings):
     # A namespace whose observed usage stays at/under this (cores / GiB) is idle.
     k8s_idle_threshold: float = 0.05
 
+    # --- Identity / IAM risk & exposure posture (M14.14) ---
+    # Collect principals + role assignments + credential/MFA/exposure signals per cloud
+    # and score identity risk (advisory, no identity mutations). Verified in mock mode
+    # (FINOPS_MOCK=1) — the recorded identity fixtures replay with no live directory.
+    iam_risk_enabled: bool = True
+    # A principal with standing access and no activity for at least this many days is
+    # flagged as unused (signal-gated: unknown activity is never flagged).
+    iam_unused_days: int = 90
+    # An enabled credential at least this many days old is flagged as stale (>= 2x -> high).
+    iam_stale_credential_days: int = 90
+
     # --- Memory metrics (optional) ---
     log_analytics_workspace_id: str | None = None
 

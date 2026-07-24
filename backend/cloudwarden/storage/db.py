@@ -304,6 +304,24 @@ SELECT
     END                                                              AS status
 FROM control_policy cp
 GROUP BY cp.framework, cp.control_id;
+
+-- Identity / IAM risk posture (M14.14). Per (provider, account) risk score — the
+-- capped sum of finding weights, mirroring analysis.iam_risk.compute_score — with
+-- finding counts by severity. Drives the Grafana IAM-risk stat panel (the findings
+-- table panel reads identity_findings directly). Empty until the identity collector
+-- persists findings via POST /api/iam/collect. Advisory only.
+CREATE OR REPLACE VIEW v_identity_risk AS
+SELECT
+    provider                                                        AS provider,
+    account_id                                                      AS account_id,
+    LEAST(100, COALESCE(SUM(weight), 0))::int                       AS risk_score,
+    COUNT(*)                                                        AS findings,
+    COUNT(*) FILTER (WHERE severity = 'critical')                   AS critical,
+    COUNT(*) FILTER (WHERE severity = 'high')                       AS high,
+    COUNT(*) FILTER (WHERE severity = 'medium')                     AS medium,
+    COUNT(*) FILTER (WHERE severity = 'low')                        AS low
+FROM identity_findings
+GROUP BY provider, account_id;
 """
 
 
