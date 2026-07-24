@@ -50,14 +50,26 @@ secrets: ## Secret-scan the working tree with gitleaks — fail on any finding (
 run-mock: ## Run the full pipeline against fixtures (no Azure), local
 	cd backend && FINOPS_MOCK=1 DATABASE_URL=$${DATABASE_URL:-postgresql+psycopg://finops:finops@localhost:5432/finops} python -m cloudwarden.cli run --mock
 
-up: ## Start the full stack (db + backend + grafana + frontend)
-	$(COMPOSE) up -d --build
+up: ## Start the full stack + populate data (mock/fake by default; `make up LIVE=1` = real .env data)
+	$(if $(LIVE),FINOPS_MOCK=0 ,)$(COMPOSE) up -d --build
+	@$(MAKE) --no-print-directory _populate LIVE="$(LIVE)"
 
-up-core: ## Start without the frontend (db + backend + grafana only)
-	$(COMPOSE) up -d --build db backend grafana
+up-core: ## Start without the frontend (db + backend + grafana) + populate (LIVE=1 for real .env data)
+	$(if $(LIVE),FINOPS_MOCK=0 ,)$(COMPOSE) up -d --build db backend grafana
+	@$(MAKE) --no-print-directory _populate LIVE="$(LIVE)"
 
-up-all: ## Alias for `up` (frontend is part of the default stack)
-	$(COMPOSE) up -d --build
+up-all: up ## Alias for `up` (frontend is part of the default stack)
+
+# Populate the running stack's data: mock (fake) fixtures by default, or a real collection
+# from the .env credentials when LIVE=1. `compose run` waits for the db healthcheck first.
+_populate:
+	@if [ -z "$(LIVE)" ]; then \
+		echo ">> Seeding mock (fake) data — run 'make up LIVE=1' to use real data from .env instead"; \
+		$(COMPOSE) run --rm backend run --mock; \
+	else \
+		echo ">> LIVE=1: collecting real data from .env (FINOPS_MOCK=0; only credentialed clouds are collected)"; \
+		FINOPS_MOCK=0 $(COMPOSE) run --rm backend run; \
+	fi
 
 down: ## Stop the stack
 	$(COMPOSE) down
@@ -71,4 +83,4 @@ initdb: ## Create/upgrade the database schema (in-container)
 seed: ## Run one mock pipeline inside the backend container
 	$(COMPOSE) run --rm backend run --mock
 
-.PHONY: help install install-dev lint fmt test coverage trivy mutation perf lock sbom secrets run-mock up up-core up-all down logs initdb seed
+.PHONY: help install install-dev lint fmt test coverage trivy mutation perf lock sbom secrets run-mock up up-core up-all _populate down logs initdb seed
