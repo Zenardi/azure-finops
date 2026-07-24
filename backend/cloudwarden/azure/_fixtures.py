@@ -18,6 +18,16 @@ def load_fixture(name: str) -> Any:
         return json.load(fh)
 
 
+def load_identity_fixture(provider: str) -> Any:
+    """Load ``cloudwarden/fixtures/identity/<provider>.json`` (M14.14 IAM risk).
+
+    The recorded principals + role assignments + credential/MFA/exposure signals a
+    provider's identity collector replays in mock mode (no live directory)."""
+    ref = resources.files("cloudwarden.fixtures.identity").joinpath(f"{provider}.json")
+    with ref.open("r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
 def retarget(resource_id: str, subscription_id: str) -> str:
     """Rewrite the placeholder subscription segment of a fixture resource id."""
     if not resource_id or subscription_id == PLACEHOLDER_SUBSCRIPTION:

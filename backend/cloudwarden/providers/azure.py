@@ -84,3 +84,11 @@ class AzureProvider:
         from ..k8s import discovery
 
         return discovery.discover_clusters(provider=self.name, account=account, client=client)
+
+    def collect_identity(
+        self, *, account: Any | None = None, client: Any | None = None
+    ) -> list[Any]:
+        """Collect Entra ID / Azure RBAC principals for IAM-risk posture (M14.14)."""
+        from ..azure import identity
+
+        return identity.collect_identity(account=account, client=client)

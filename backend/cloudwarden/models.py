@@ -137,6 +137,148 @@ class NamespaceCost(BaseModel):
     currency: str = "USD"
 
 
+# Placeholder account/subscription/project ids embedded in the recorded identity
+# fixtures, retargeted to the onboarded account on ingest (M14.14) — mirrors the
+# k8s/aws collectors so multi-account runs produce distinct principal ids/scopes.
+_IDENTITY_PLACEHOLDERS = {
+    "aws": "123456789012",
+    "azure": "00000000-0000-0000-0000-000000000000",
+    "gcp": "example-project-123456",
+}
+
+
+class RoleAssignment(BaseModel):
+    """One role/permission grant to a principal at a scope (M14.14).
+
+    ``scope_level`` normalizes the grant's breadth across clouds — ``organization``
+    (AWS Org root / Azure management group / GCP org), ``account`` (account /
+    subscription / project), ``resource_group`` or ``resource`` — so the risk rules
+    reason about blast radius provider-agnostically. ``permissions`` may contain the
+    wildcard ``"*"`` (the over-privilege signal)."""
+
+    role: str = ""
+    scope: str = ""
+    scope_level: str = "resource"  # organization | account | resource_group | resource
+    permissions: list[str] = Field(default_factory=list)
+
+
+class Credential(BaseModel):
+    """A principal's credential (password / access key / client secret / ssh key)
+    metadata for the stale-credential rule (M14.14).
+
+    ``age_days`` is days since creation/rotation and ``last_used_days`` days since last
+    use; ``None`` means unknown — the rules never flag on absence of data."""
+
+    kind: str = "password"  # password | access_key | client_secret | ssh_key
+    enabled: bool = True
+    age_days: int | None = None
+    last_used_days: int | None = None
+
+
+class IdentityPrincipal(BaseModel):
+    """A collected identity principal with the signals the IAM-risk rules score (M14.14).
+
+    Every provider's collector normalizes to this one shape (Entra/Azure RBAC, AWS IAM,
+    GCP IAM) so the rules and score are cloud-agnostic. ``mfa_enabled`` is ``None`` for
+    non-human principals (MFA is N/A); ``last_activity_days`` is ``None`` when never used
+    or unknown; ``public`` marks anonymous / all-users exposure (allUsers / Principal:*)."""
+
+    principal_id: str
+    display_name: str = ""
+    principal_type: str = "user"  # user | service_principal | role | service_account | group
+    provider: str = "azure"
+    account_id: str | None = None
+    assignments: list[RoleAssignment] = Field(default_factory=list)
+    credentials: list[Credential] = Field(default_factory=list)
+    mfa_enabled: bool | None = None  # None = N/A (non-human)
+    last_activity_days: int | None = None  # since last sign-in/use; None = never/unknown
+    public: bool = False  # anonymous / all-users exposure
+    exposure_detail: str = ""  # human-readable basis for ``public``
+    config: dict = Field(default_factory=dict)
+
+    @classmethod
+    def from_raw(
+        cls, row: dict, *, provider: str, account_id: str | None = None
+    ) -> IdentityPrincipal:
+        """Normalize one recorded/live principal row, retargeting the placeholder account
+        id in the principal id + assignment scopes to the onboarded account."""
+        placeholder = _IDENTITY_PLACEHOLDERS.get(provider)
+
+        def rt(value: str | None) -> str:
+            if value and account_id and placeholder and account_id != placeholder:
+                return value.replace(placeholder, account_id)
+            return value or ""
+
+        assignments = [
+            RoleAssignment(
+                role=a.get("role", ""),
+                scope=rt(a.get("scope", "")),
+                scope_level=a.get("scope_level", "resource"),
+                permissions=list(a.get("permissions") or []),
+            )
+            for a in row.get("assignments") or []
+        ]
+        credentials = [
+            Credential(
+                kind=c.get("kind", "password"),
+                enabled=bool(c.get("enabled", True)),
+                age_days=c.get("age_days"),
+                last_used_days=c.get("last_used_days"),
+            )
+            for c in row.get("credentials") or []
+        ]
+        return cls(
+            principal_id=rt(row["principal_id"]),
+            display_name=row.get("display_name", ""),
+            principal_type=row.get("principal_type", "user"),
+            provider=provider,
+            account_id=account_id or row.get("account_id"),
+            assignments=assignments,
+            credentials=credentials,
+            mfa_enabled=row.get("mfa_enabled"),
+            last_activity_days=row.get("last_activity_days"),
+            public=bool(row.get("public", False)),
+            exposure_detail=row.get("exposure_detail", ""),
+            config=dict(row.get("config") or {}),
+        )
+
+
+class IdentityFinding(BaseModel):
+    """An advisory, evidence-backed identity-risk finding (M14.14).
+
+    ``category`` is one of ``over_privilege`` / ``unused_principal`` / ``stale_credential``
+    / ``missing_mfa`` / ``public_exposure``; ``weight`` is the severity's score
+    contribution (the basis the 0-100 score sums), ``blast_radius`` the scope-breadth
+    multiplier used for ranking. Findings never carry a remediation action — advisory only."""
+
+    principal_id: str
+    principal_type: str = "user"
+    provider: str = "azure"
+    account_id: str | None = None
+    # over_privilege | unused_principal | stale_credential | missing_mfa | public_exposure
+    category: str
+    severity: str = "medium"  # low | medium | high | critical
+    title: str = ""
+    rationale: str = ""
+    blast_radius: int = 1
+    weight: int = 0
+    evidence: dict = Field(default_factory=dict)
+
+
+class IdentityRiskScore(BaseModel):
+    """A normalized 0-100 identity-risk score for one account, reproducible from findings.
+
+    ``score == min(100, sum(f.weight for f in findings))`` — a pure function of the
+    findings it carries, so the score can always be re-derived from the evidence (M14.14)."""
+
+    account_id: str | None = None
+    provider: str = "azure"
+    score: int = 0
+    finding_count: int = 0
+    by_severity: dict[str, int] = Field(default_factory=dict)
+    findings: list[IdentityFinding] = Field(default_factory=list)
+
+
 class MetricSample(BaseModel):
     resource_id: str
     metric_name: str

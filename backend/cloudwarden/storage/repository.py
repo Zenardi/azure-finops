@@ -4102,3 +4102,97 @@ def delete_binding_notification(session: Session, notification_id: int) -> bool:
     session.delete(rec)
     session.flush()
     return True
+
+
+# --------------------------------------------------------------------------- #
+# Identity / IAM risk findings (M14.14)
+# --------------------------------------------------------------------------- #
+def _identity_finding_public(rec: schema.IdentityFinding) -> dict[str, Any]:
+    return {
+        "id": rec.id,
+        "principal_id": rec.principal_id,
+        "principal_type": rec.principal_type,
+        "provider": rec.provider,
+        "account_id": rec.account_id,
+        "category": rec.category,
+        "severity": rec.severity,
+        "title": rec.title,
+        "rationale": rec.rationale,
+        "blast_radius": rec.blast_radius,
+        "weight": rec.weight,
+        "evidence": rec.evidence or {},
+        "run_id": rec.run_id,
+        "created_at": rec.created_at.isoformat() if rec.created_at else None,
+    }
+
+
+def _identity_finding_hash(finding: m.IdentityFinding) -> str:
+    """Stable idempotency key for a finding — (principal, category, title)."""
+    import hashlib
+
+    canonical = "|".join([finding.principal_id, finding.category, finding.title])
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def replace_identity_findings(
+    session: Session,
+    *,
+    provider: str,
+    account_id: str | None,
+    findings: list[m.IdentityFinding],
+    run_id: str | None = None,
+) -> int:
+    """Replace the identity findings for one (provider, account) as a snapshot.
+
+    Delete-then-insert so a re-scan reflects the latest posture exactly — never
+    duplicating and never leaving stale findings behind. Returns the number written."""
+    session.query(schema.IdentityFinding).filter(
+        schema.IdentityFinding.provider == provider,
+        schema.IdentityFinding.account_id == account_id,
+    ).delete(synchronize_session=False)
+    for f in findings:
+        session.add(
+            schema.IdentityFinding(
+                principal_id=f.principal_id,
+                principal_type=f.principal_type,
+                provider=f.provider,
+                account_id=f.account_id,
+                category=f.category,
+                severity=f.severity,
+                title=f.title,
+                rationale=f.rationale,
+                blast_radius=f.blast_radius,
+                weight=f.weight,
+                evidence=f.evidence,
+                finding_hash=_identity_finding_hash(f),
+                run_id=run_id,
+            )
+        )
+    session.flush()
+    return len(findings)
+
+
+def list_identity_findings(
+    session: Session,
+    *,
+    provider: str | None = None,
+    account_id: str | None = None,
+    category: str | None = None,
+    severity: str | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """Persisted identity findings, ranked by severity x blast radius (worst first)."""
+    query = session.query(schema.IdentityFinding)
+    if provider:
+        query = query.filter(schema.IdentityFinding.provider == provider)
+    if account_id:
+        query = query.filter(schema.IdentityFinding.account_id == account_id)
+    if category:
+        query = query.filter(schema.IdentityFinding.category == category)
+    if severity:
+        query = query.filter(schema.IdentityFinding.severity == severity)
+    query = query.order_by(
+        (schema.IdentityFinding.weight * schema.IdentityFinding.blast_radius).desc(),
+        schema.IdentityFinding.id.asc(),
+    ).limit(limit)
+    return [_identity_finding_public(r) for r in query.all()]

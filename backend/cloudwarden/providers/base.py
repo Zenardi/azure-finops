@@ -79,3 +79,15 @@ class CloudProvider(Protocol):
         right-size workloads behind one seam. ``client`` is an injectable control-plane
         client; tests pass a fake so nothing touches a live cloud.
         """
+
+    def collect_identity(
+        self, *, account: AccountContext | None = None, client: Any | None = None
+    ) -> list[Any]:
+        """Collect this cloud's identity principals for IAM-risk posture (M14.14).
+
+        Returns :class:`~cloudwarden.models.IdentityPrincipal` objects (Entra/Azure RBAC,
+        AWS IAM, GCP IAM) normalized to one shape so the risk rules and score are
+        provider-agnostic. Advisory only — collection never mutates identities. ``client``
+        is an injectable directory/IAM client; tests pass a fake so nothing touches a live
+        cloud.
+        """

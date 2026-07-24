@@ -1080,3 +1080,57 @@ export const getK8sNamespaces = (provider = "all"): Promise<NamespaceCost[]> =>
 /** K8s workload right-sizing + idle-namespace recommendations (advisory, M14.12). */
 export const getK8sRecommendations = (provider = "all"): Promise<K8sRecommendation[]> =>
   apiGet<K8sRecommendation[]>(`/api/k8s/recommendations${k8sScope(provider)}`);
+
+// --- Identity / IAM risk & exposure posture (M14.14) ------------------------- //
+export type IamSeverity = "low" | "medium" | "high" | "critical";
+export type IamCategory =
+  | "over_privilege"
+  | "unused_principal"
+  | "stale_credential"
+  | "missing_mfa"
+  | "public_exposure";
+
+/** One advisory, evidence-backed identity-risk finding (M14.14). */
+export interface IamFinding {
+  id: number;
+  principal_id: string;
+  principal_type: string;
+  provider: string;
+  account_id: string | null;
+  category: IamCategory;
+  severity: IamSeverity;
+  title: string;
+  rationale: string;
+  blast_radius: number;
+  weight: number;
+  evidence: Record<string, any>;
+  created_at: string | null;
+}
+
+/** Per-account normalized 0-100 identity risk score (reproducible from findings). */
+export interface IamAccountScore {
+  provider: string;
+  account_id: string | null;
+  score: number;
+  finding_count: number;
+  by_severity: Record<IamSeverity, number>;
+}
+
+export interface IamScore {
+  overall: number;
+  accounts: IamAccountScore[];
+}
+
+/** Persisted identity/IAM risk findings, ranked by severity x blast radius (M14.14). */
+export const getIamFindings = (provider = "all"): Promise<IamFinding[]> =>
+  apiGet<{ findings: IamFinding[] }>(`/api/iam/findings${k8sScope(provider)}`).then(
+    (r) => r.findings,
+  );
+
+/** Reproducible identity risk score per account + overall (M14.14). */
+export const getIamScore = (provider = "all"): Promise<IamScore> =>
+  apiGet<IamScore>(`/api/iam/score${k8sScope(provider)}`);
+
+/** Collect identity per account and persist findings as a snapshot (advisory, M14.14). */
+export const collectIam = (provider = "all"): Promise<{ identity_findings: number }> =>
+  apiPost<{ identity_findings: number }>(`/api/iam/collect${k8sScope(provider)}`);

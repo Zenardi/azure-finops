@@ -361,6 +361,49 @@ records its version in `installed_frameworks` and its control→policy mappings 
 **Framework posture by control** panel. Discovery/posture/evidence work whether or
 not the overlay is installed; install adds versioning + the SQL/Grafana rollup.
 
+## Identity / IAM risk & exposure posture — M14.14
+
+Governing resources isn't enough — the most common real-world breach paths are
+**identity**: over-permissioned principals, stale credentials, missing MFA, and public
+exposure. This layer collects principals + role assignments + credential/MFA/exposure
+signals per cloud and scores them, **advisory only** — no identity is ever mutated.
+
+Collectors (`azure/identity.py`, `providers/aws_iam.py`, `providers/gcp_iam.py`) sit
+behind the `collect_identity` provider capability and an **injectable** directory/IAM
+client; mock mode replays `fixtures/identity/{aws,azure,gcp}.json` (no live directory).
+Each normalizes to one provider-neutral `IdentityPrincipal` (assignments, credentials,
+`mfa_enabled`, `last_activity_days`, `public`), so the rules are cloud-agnostic.
+
+`analysis/iam_risk.py` applies five evidence-backed rules, each with a severity:
+
+| Category | Fires when | Severity |
+| --- | --- | --- |
+| `over_privilege` | wildcard `*` or an admin role at a **broad** scope (org / account) | `critical` if wildcard-at-org, else `high` |
+| `unused_principal` | standing access but no activity for ≥ `IAM_UNUSED_DAYS` | `medium` |
+| `stale_credential` | an **enabled** credential ≥ `IAM_STALE_CREDENTIAL_DAYS` old | `high` past 2× the threshold, else `medium` |
+| `missing_mfa` | a human `user` with MFA explicitly disabled | `high` |
+| `public_exposure` | anonymous / all-users principal (`allUsers`, `Principal:*`) | `critical` |
+
+Everything is **signal-gated**: unknown activity or credential age is never flagged, MFA
+is N/A for non-human principals, and a well-scoped, active, MFA-enabled principal with a
+fresh credential produces **no** findings (no false positives). Findings rank by
+severity × blast radius (scope breadth).
+
+The account **risk score** is `min(100, Σ finding weights)` — a pure, **reproducible**
+function of the findings (`{low:5, medium:15, high:30, critical:50}`), so the score
+always reconciles with the findings that justify it.
+
+```
+GET  /api/iam/findings?provider=&account_id=&category=&severity=   # ranked findings (iam:read)
+GET  /api/iam/score?provider=                                      # per-account + overall (iam:read)
+POST /api/iam/collect?provider=                                    # scan + persist snapshot (iam:collect)
+```
+
+`POST /api/iam/collect` persists a per-account **snapshot** (replace, not append) into
+`identity_findings`, which backs the `v_identity_risk` view and the Grafana IAM-risk
+panels; `/score` recomputes the score from those persisted findings so it always
+reconciles. Surfaced in the **IAM risk** UI view (per-account scores + ranked findings).
+
 ## GitOps sync
 
 Keep policies in a Git repo and sync them in. Configure:

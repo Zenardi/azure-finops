@@ -6,6 +6,27 @@ All notable changes to this project are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **Identity / IAM risk & exposure posture (#147, M14.14).** CloudWarden governed resources
+  but had **no identity posture** — the most common real-world breach paths (over-permissioned
+  principals, stale credentials, missing MFA, public exposure) were invisible. This adds an
+  IAM-risk layer: per-cloud collectors (`azure/identity.py`, `providers/aws_iam.py`,
+  `providers/gcp_iam.py`) enumerate principals + role assignments + credential/MFA/exposure
+  signals behind **injectable clients** (mock mode replays `fixtures/identity/*.json`; no live
+  directory), normalized to one provider-neutral `IdentityPrincipal`. `analysis/iam_risk.py`
+  applies five **evidence-backed** rules — **over_privilege** (wildcard/admin at a broad scope;
+  wildcard-at-org is critical), **unused_principal** (standing access, no activity past the
+  threshold), **stale_credential** (an enabled credential past the rotation threshold),
+  **missing_mfa** (a human user with MFA off), **public_exposure** (anonymous / all-users) —
+  each carrying its severity + basis. The account **risk score** is `min(100, Σ weights)`: a
+  pure, **reproducible** function of the findings, so `GET /api/iam/score` always reconciles
+  with `GET /api/iam/findings`. Findings are ranked by severity × blast radius and are
+  **advisory only** — no identity is ever mutated. Signal-gated throughout: unknown activity /
+  credential age is never flagged, and a well-scoped, active, MFA-enabled principal produces
+  **no** findings (no false positives). `POST /api/iam/collect` persists a per-account snapshot
+  (replace, not append) into the new `identity_findings` table behind `iam:collect`; the reads
+  are behind `iam:read`. Surfaced in a new **IAM risk** UI view (per-account scores + ranked
+  findings) and a Grafana IAM-risk panel (new `v_identity_risk` view). Verified end-to-end in
+  `FINOPS_MOCK=1`; strict TDD, new modules at 100% line coverage.
 - **Compliance framework overlays & auditor evidence export (#146, M14.13).** The CIS Azure
   pack mapped controls to policies, but there was no **framework overlay** (SOC 2 / ISO 27001
   / PCI DSS / NIST 800-53) and no **auditor evidence export**. This ships versioned, installable

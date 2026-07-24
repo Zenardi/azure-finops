@@ -2085,6 +2085,96 @@ def install_framework(framework_id: str) -> dict[str, Any]:
     return report
 
 
+# --- Identity / IAM risk & exposure posture (M14.14) --------------------------- #
+def _iam_provider_scope(provider: str) -> str | None:
+    """Normalize the IAM ``?provider=`` read filter (``all`` → no filter)."""
+    normalized = (provider or "all").strip().lower()
+    return None if normalized in ("", "all") else normalized
+
+
+@app.get("/api/iam/findings", dependencies=[Depends(rbac.require_permission("iam:read"))])
+def iam_findings(
+    provider: str = "all",
+    account_id: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    severity: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=1000),
+) -> dict[str, Any]:
+    """Persisted identity / IAM risk findings, ranked by severity x blast radius (M14.14).
+
+    Each finding carries evidence + severity and is **advisory only** — no identity is
+    ever mutated. Filter by ``provider`` / ``account_id`` / ``category`` / ``severity``.
+    Empty until a scan is run (``POST /api/iam/collect``). RBAC-guarded (``iam:read``)."""
+    with session_scope() as session:
+        findings = repo.list_identity_findings(
+            session,
+            provider=_iam_provider_scope(provider),
+            account_id=account_id,
+            category=category,
+            severity=severity,
+            limit=limit,
+        )
+    return {"findings": findings}
+
+
+@app.get("/api/iam/score", dependencies=[Depends(rbac.require_permission("iam:read"))])
+def iam_score(provider: str = "all") -> dict[str, Any]:
+    """Normalized 0-100 identity risk score per account + overall (M14.14).
+
+    Recomputed from the persisted findings — ``score == min(100, sum(weights))`` — so it
+    always reconciles with ``GET /api/iam/findings``. RBAC-guarded (``iam:read``)."""
+    from ..analysis import iam_risk
+    from ..models import IdentityFinding
+
+    with session_scope() as session:
+        rows = repo.list_identity_findings(
+            session, provider=_iam_provider_scope(provider), limit=1000
+        )
+    findings = [
+        IdentityFinding(
+            principal_id=r["principal_id"],
+            principal_type=r["principal_type"],
+            provider=r["provider"],
+            account_id=r["account_id"],
+            category=r["category"],
+            severity=r["severity"],
+            blast_radius=r["blast_radius"],
+            weight=r["weight"],
+        )
+        for r in rows
+    ]
+    groups: dict[tuple[str, str | None], list[IdentityFinding]] = {}
+    for f in findings:
+        groups.setdefault((f.provider, f.account_id), []).append(f)
+    accounts = []
+    for (prov, account_id), items in sorted(
+        groups.items(), key=lambda kv: (kv[0][0], kv[0][1] or "")
+    ):
+        summary = iam_risk.summarize(items, account_id=account_id, provider=prov)
+        accounts.append(
+            {
+                "provider": prov,
+                "account_id": account_id,
+                "score": summary.score,
+                "finding_count": summary.finding_count,
+                "by_severity": summary.by_severity,
+            }
+        )
+    return {"overall": iam_risk.compute_score(findings), "accounts": accounts}
+
+
+@app.post("/api/iam/collect", dependencies=[Depends(rbac.require_permission("iam:collect"))])
+def iam_collect(provider: str = "all") -> dict[str, int]:
+    """Collect identity per account and persist findings as a snapshot (M14.14).
+
+    In mock mode replays the recorded identity fixtures; a re-scan **replaces** the
+    snapshot (never duplicates). Advisory only — no identity is mutated. Provider scope
+    validated (unknown → ``400``). RBAC-guarded (``iam:collect``)."""
+    from ..orchestrator import run_identity
+
+    return run_identity(_k8s_provider_filter(provider))
+
+
 @app.post("/api/assets/query")
 def query_assets(body: AssetQuery) -> list[dict[str, Any]]:
     """Filter AssetDB via an allow-listed, injection-safe query (M4.2).

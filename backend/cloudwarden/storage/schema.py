@@ -1163,3 +1163,43 @@ class Waiver(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class IdentityFinding(Base):
+    """An advisory, evidence-backed identity / IAM risk finding (M14.14).
+
+    One row per (principal, risk category) surfaced by the IAM-risk rules: over-privilege,
+    unused principal, stale credential, missing MFA, or public exposure. ``severity`` and
+    ``weight`` are the score basis (the account score sums weights, capped at 100);
+    ``blast_radius`` is the scope-breadth multiplier used for ranking; ``evidence`` (JSONB)
+    is the "show your basis" detail. ``finding_hash`` is the idempotency key — the
+    per-account snapshot writer replaces a scan's rows rather than duplicating. Findings
+    never carry a remediation action (advisory only); ``run_id`` is the detecting run.
+    """
+
+    __tablename__ = "identity_findings"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    principal_id: Mapped[str] = mapped_column(String(512), index=True)
+    principal_type: Mapped[str] = mapped_column(String(32), default="user")
+    provider: Mapped[str] = mapped_column(
+        String(32), default="azure", server_default="azure", index=True
+    )
+    account_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    category: Mapped[str] = mapped_column(String(32), index=True)
+    severity: Mapped[str] = mapped_column(String(16), default="medium", index=True)
+    title: Mapped[str] = mapped_column(Text, default="")
+    rationale: Mapped[str] = mapped_column(Text, default="")
+    blast_radius: Mapped[int] = mapped_column(Integer, default=1)
+    weight: Mapped[int] = mapped_column(Integer, default=0)
+    evidence: Mapped[dict] = mapped_column(JSONB, default=dict)
+    finding_hash: Mapped[str] = mapped_column(String(64), index=True)
+    run_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("principal_id", "category", "finding_hash", name="uq_identity_finding"),
+    )

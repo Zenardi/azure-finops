@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 
 type IconName =
   | "overview" | "costs" | "recommendations" | "budgets" | "kubernetes" | "policies" | "collections"
-  | "bindings" | "compliance" | "waivers" | "guardrails" | "remediation" | "runs" | "executions"
+  | "bindings" | "compliance" | "waivers" | "guardrails" | "iamRisk" | "remediation" | "runs" | "executions"
   | "events" | "assets" | "subscriptions" | "accountGroups" | "notifications"
   | "audit" | "chevronLeft" | "close" | "menu";
 
@@ -83,6 +83,13 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" />
       <path d="M9.5 12l2 2 3.5-4" />
+    </>
+  ),
+  iamRisk: (
+    <>
+      <path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" />
+      <circle cx="12" cy="10.5" r="1.8" />
+      <path d="M12 12.3v2.7" />
     </>
   ),
   runs: (
@@ -185,6 +192,7 @@ const GROUPS: NavGroup[] = [
       { href: "/collections", label: "Collections", icon: "collections" },
       { href: "/bindings", label: "Bindings", icon: "bindings" },
       { href: "/compliance", label: "Compliance", icon: "compliance" },
+      { href: "/iam", label: "IAM risk", icon: "iamRisk" },
       { href: "/waivers", label: "Waivers", icon: "waivers" },
       { href: "/guardrails", label: "Guardrails", icon: "guardrails" },
       { href: "/remediation", label: "Remediation", icon: "remediation" },

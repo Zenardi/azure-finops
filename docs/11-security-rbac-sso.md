@@ -26,6 +26,12 @@ endpoint's permission. Reads stay open. The caller's identity is the **principal
 Each mutating route declares the permission it needs (e.g. `policy:write`,
 `binding:run`, `remediation:approve`). Permissions are visible on `GET /api/authz/roles`.
 
+A few **reads** that surface sensitive posture are also gated (granted to `editor`/`admin`):
+`commitment:read`, `budget:read`, `anomaly:read`, `forecast:read`, `drift:read`, and
+`iam:read` (identity / IAM risk findings + score, M14.14). The identity scan
+`POST /api/iam/collect` is a write, behind `iam:collect` — it is advisory-only and never
+mutates an identity.
+
 ### Bootstrapping
 
 `rbac:admin` is itself required to create bindings — so the **first** admin must be

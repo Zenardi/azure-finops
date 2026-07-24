@@ -1,0 +1,115 @@
+{
+  "_comment": "Recorded Entra ID / Azure RBAC identity posture (M14.14). One principal per risk archetype plus a clean least-privilege principal. Placeholder subscription 00000000-0000-0000-0000-000000000000 is retargeted to the onboarded subscription on ingest. Advisory only.",
+  "principals": [
+    {
+      "principal_id": "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/roleAssignments/global-admin-sp",
+      "display_name": "over-privileged",
+      "principal_type": "service_principal",
+      "account_id": "00000000-0000-0000-0000-000000000000",
+      "assignments": [
+        {
+          "role": "Owner",
+          "scope": "/providers/Microsoft.Management/managementGroups/root",
+          "scope_level": "organization",
+          "permissions": ["*"]
+        }
+      ],
+      "credentials": [],
+      "mfa_enabled": null,
+      "last_activity_days": 4
+    },
+    {
+      "principal_id": "olduser@contoso.onmicrosoft.com",
+      "display_name": "unused",
+      "principal_type": "user",
+      "account_id": "00000000-0000-0000-0000-000000000000",
+      "assignments": [
+        {
+          "role": "Reader",
+          "scope": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-a",
+          "scope_level": "resource_group",
+          "permissions": ["*/read"]
+        }
+      ],
+      "credentials": [],
+      "mfa_enabled": true,
+      "last_activity_days": 205
+    },
+    {
+      "principal_id": "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/roleAssignments/legacy-secret-sp",
+      "display_name": "stale-cred",
+      "principal_type": "service_principal",
+      "account_id": "00000000-0000-0000-0000-000000000000",
+      "assignments": [
+        {
+          "role": "Storage Blob Data Reader",
+          "scope": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-a/providers/Microsoft.Storage/storageAccounts/sa1",
+          "scope_level": "resource",
+          "permissions": ["Microsoft.Storage/storageAccounts/blobServices/containers/read"]
+        }
+      ],
+      "credentials": [
+        {"kind": "client_secret", "enabled": true, "age_days": 400, "last_used_days": 30}
+      ],
+      "mfa_enabled": null,
+      "last_activity_days": 30
+    },
+    {
+      "principal_id": "bob@contoso.onmicrosoft.com",
+      "display_name": "no-mfa",
+      "principal_type": "user",
+      "account_id": "00000000-0000-0000-0000-000000000000",
+      "assignments": [
+        {
+          "role": "Reader",
+          "scope": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-b",
+          "scope_level": "resource_group",
+          "permissions": ["*/read"]
+        }
+      ],
+      "credentials": [
+        {"kind": "password", "enabled": true, "age_days": 15, "last_used_days": 1}
+      ],
+      "mfa_enabled": false,
+      "last_activity_days": 1
+    },
+    {
+      "principal_id": "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/roleAssignments/anonymous-blob",
+      "display_name": "public",
+      "principal_type": "group",
+      "account_id": "00000000-0000-0000-0000-000000000000",
+      "public": true,
+      "exposure_detail": "role assigned to 'All Authenticated Users' (Principal:*)",
+      "assignments": [
+        {
+          "role": "Storage Blob Data Reader",
+          "scope": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-a/providers/Microsoft.Storage/storageAccounts/publicsa",
+          "scope_level": "resource",
+          "permissions": ["Microsoft.Storage/storageAccounts/blobServices/containers/read"]
+        }
+      ],
+      "credentials": [],
+      "mfa_enabled": null,
+      "last_activity_days": null
+    },
+    {
+      "principal_id": "alice@contoso.onmicrosoft.com",
+      "display_name": "least-privilege",
+      "principal_type": "user",
+      "account_id": "00000000-0000-0000-0000-000000000000",
+      "assignments": [
+        {
+          "role": "Reader",
+          "scope": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-a",
+          "scope_level": "resource",
+          "permissions": ["*/read"]
+        }
+      ],
+      "credentials": [
+        {"kind": "password", "enabled": true, "age_days": 5, "last_used_days": 1}
+      ],
+      "mfa_enabled": true,
+      "last_activity_days": 1
+    }
+  ]
+}

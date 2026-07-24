@@ -1,0 +1,115 @@
+{
+  "_comment": "Recorded GCP IAM identity posture (M14.14). One principal per risk archetype plus a clean least-privilege principal. Placeholder project example-project-123456 is retargeted to the onboarded project on ingest. The public principal is an allUsers binding — the canonical GCP anonymous exposure. Advisory only.",
+  "principals": [
+    {
+      "principal_id": "serviceAccount:org-admin@example-project-123456.iam.gserviceaccount.com",
+      "display_name": "over-privileged",
+      "principal_type": "service_account",
+      "account_id": "example-project-123456",
+      "assignments": [
+        {
+          "role": "roles/owner",
+          "scope": "organizations/123456",
+          "scope_level": "organization",
+          "permissions": ["*"]
+        }
+      ],
+      "credentials": [],
+      "mfa_enabled": null,
+      "last_activity_days": 5
+    },
+    {
+      "principal_id": "serviceAccount:ci-legacy@example-project-123456.iam.gserviceaccount.com",
+      "display_name": "unused",
+      "principal_type": "service_account",
+      "account_id": "example-project-123456",
+      "assignments": [
+        {
+          "role": "roles/storage.objectViewer",
+          "scope": "projects/example-project-123456/buckets/reports",
+          "scope_level": "resource",
+          "permissions": ["storage.objects.get"]
+        }
+      ],
+      "credentials": [],
+      "mfa_enabled": null,
+      "last_activity_days": 165
+    },
+    {
+      "principal_id": "serviceAccount:key-rot@example-project-123456.iam.gserviceaccount.com",
+      "display_name": "stale-cred",
+      "principal_type": "service_account",
+      "account_id": "example-project-123456",
+      "assignments": [
+        {
+          "role": "roles/logging.viewer",
+          "scope": "projects/example-project-123456",
+          "scope_level": "resource",
+          "permissions": ["logging.logs.list"]
+        }
+      ],
+      "credentials": [
+        {"kind": "access_key", "enabled": true, "age_days": 300, "last_used_days": 10}
+      ],
+      "mfa_enabled": null,
+      "last_activity_days": 10
+    },
+    {
+      "principal_id": "user:dave@example.com",
+      "display_name": "no-mfa",
+      "principal_type": "user",
+      "account_id": "example-project-123456",
+      "assignments": [
+        {
+          "role": "roles/viewer",
+          "scope": "projects/example-project-123456/buckets/logs",
+          "scope_level": "resource",
+          "permissions": ["storage.objects.get"]
+        }
+      ],
+      "credentials": [
+        {"kind": "password", "enabled": true, "age_days": 12, "last_used_days": 1}
+      ],
+      "mfa_enabled": false,
+      "last_activity_days": 1
+    },
+    {
+      "principal_id": "allUsers",
+      "display_name": "public",
+      "principal_type": "group",
+      "account_id": "example-project-123456",
+      "public": true,
+      "exposure_detail": "IAM binding grants roles/storage.objectViewer to allUsers (Principal:*)",
+      "assignments": [
+        {
+          "role": "roles/storage.objectViewer",
+          "scope": "projects/example-project-123456/buckets/public-data",
+          "scope_level": "resource",
+          "permissions": ["storage.objects.get"]
+        }
+      ],
+      "credentials": [],
+      "mfa_enabled": null,
+      "last_activity_days": null
+    },
+    {
+      "principal_id": "user:carol@example.com",
+      "display_name": "least-privilege",
+      "principal_type": "user",
+      "account_id": "example-project-123456",
+      "assignments": [
+        {
+          "role": "roles/viewer",
+          "scope": "projects/example-project-123456/buckets/app",
+          "scope_level": "resource",
+          "permissions": ["storage.objects.get"]
+        }
+      ],
+      "credentials": [
+        {"kind": "password", "enabled": true, "age_days": 6, "last_used_days": 1}
+      ],
+      "mfa_enabled": true,
+      "last_activity_days": 2
+    }
+  ]
+}

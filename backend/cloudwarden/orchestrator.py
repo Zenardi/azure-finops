@@ -232,6 +232,112 @@ def run_kubernetes(providers: list[str] | None = None) -> dict[str, int]:
     return counts
 
 
+# --------------------------------------------------------------------------- #
+# Identity / IAM risk & exposure posture (M14.14)
+# --------------------------------------------------------------------------- #
+def _identity_accounts(providers: list[str] | None = None) -> list[AccountContext]:
+    """Default account contexts for the identity-capable clouds (M14.14)."""
+    from .providers import registry
+
+    settings = get_settings()
+    names = providers or ["azure", "aws", "gcp"]
+    accounts: list[AccountContext] = []
+    for name in names:
+        provider = registry.get(name)
+        account_id = provider.default_account_id(settings) or ""
+        accounts.append(provider.account_context(account_id=account_id))
+    return accounts
+
+
+def collect_identity(
+    accounts: list[AccountContext], *, clients: dict[str, Any] | None = None
+) -> list[Any]:
+    """Collect identity principals per account, provider-dispatched (M14.14).
+
+    Per-account isolation so a single cloud failing never sinks the fan-out — mirroring
+    ``collect_kubernetes``. Returns the flat list of normalized ``IdentityPrincipal``s
+    behind the injectable directory/IAM clients."""
+    from .providers import registry
+
+    clients = clients or {}
+    principals: list[Any] = []
+    for account in accounts:
+        try:
+            provider = registry.get(account.provider)
+            principals.extend(
+                provider.collect_identity(account=account, client=clients.get(account.provider))
+            )
+        except Exception:  # noqa: BLE001 - per-account isolation, never fail the fan-out
+            logger.warning("identity collection failed for %s", account.account_id, exc_info=True)
+    return principals
+
+
+def identity_snapshot(providers: list[str] | None = None) -> dict[str, Any]:
+    """The IAM-risk picture for the API: findings + per-account scores (M14.14).
+
+    Computed on demand (mock mode replays the identity fixtures) so the read path
+    surfaces live-shaped data; :func:`run_identity` persists it for Grafana. The
+    per-account score is reproducible from the findings it carries."""
+    from .analysis import iam_risk
+
+    principals = collect_identity(_identity_accounts(providers))
+    findings = iam_risk.analyze_principals(principals)
+    accounts = {(p.provider, p.account_id) for p in principals}
+    scores: list[dict[str, Any]] = []
+    for provider, account_id in sorted(accounts, key=lambda a: (a[0], a[1] or "")):
+        subset = [f for f in findings if f.provider == provider and f.account_id == account_id]
+        summary = iam_risk.summarize(subset, account_id=account_id, provider=provider)
+        scores.append(
+            {
+                "provider": provider,
+                "account_id": account_id,
+                "score": summary.score,
+                "finding_count": summary.finding_count,
+                "by_severity": summary.by_severity,
+            }
+        )
+    return {
+        "principals": [p.model_dump() for p in principals],
+        "findings": [f.model_dump() for f in findings],
+        "scores": scores,
+    }
+
+
+def run_identity(providers: list[str] | None = None) -> dict[str, int]:
+    """Collect identity across the identity-capable clouds and persist findings (M14.14).
+
+    A separate cadence from the FinOps ``run_pipeline`` (identity has its own lifecycle):
+    enumerate principals per account, apply the IAM-risk rules, and persist the findings
+    as a per-account **snapshot** (replace, not append) so re-scans reflect the latest
+    posture without duplicating and clean accounts clear stale findings. Advisory only —
+    no identity is ever mutated. Scores are surfaced on demand via :func:`identity_snapshot`
+    and reproduced from the persisted findings on ``/api/iam/score``."""
+    from .analysis import iam_risk
+
+    init_db()
+    principals = collect_identity(_identity_accounts(providers))
+    findings = iam_risk.analyze_principals(principals)
+    scanned = {(p.provider, p.account_id) for p in principals}
+    by_group: dict[tuple[str, str | None], list[Any]] = {}
+    for f in findings:
+        by_group.setdefault((f.provider, f.account_id), []).append(f)
+
+    run_id = _new_run_id()
+    written = 0
+    with session_scope() as session:
+        for provider, account_id in scanned:
+            written += repo.replace_identity_findings(
+                session,
+                provider=provider,
+                account_id=account_id,
+                findings=by_group.get((provider, account_id), []),
+                run_id=run_id,
+            )
+    counts = {"identity_principals": len(principals), "identity_findings": written}
+    logger.info("identity collection: %s", counts)
+    return counts
+
+
 def run_pipeline(
     mock: bool | None = None, subscription: AccountContext | None = None
 ) -> dict[str, Any]:
